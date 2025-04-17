@@ -5,10 +5,11 @@ import os
 import sys
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 from statistics import mean, median
 
 import dotenv
+import pytz
 import requests
 from garminconnect import (
     Garmin,
@@ -94,13 +95,15 @@ except InfluxDBClientError as err:
 
 # %%
 def iter_days(start_date: str, end_date: str):
-    start = datetime.strptime(start_date, '%Y-%m-%d')
-    end = datetime.strptime(end_date, '%Y-%m-%d')
-    current = end
-
-    while current >= start:
-        yield current.strftime('%Y-%m-%d')
-        current -= timedelta(days=1)
+    """
+    Yield YYYY‑MM‑DD from start_date up to end_date, oldest first.
+    """
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end   = datetime.strptime(end_date,   "%Y-%m-%d")
+    current = start
+    while current <= end:
+        yield current.strftime("%Y-%m-%d")
+        current += timedelta(days=1)
 
 
 # %%
@@ -937,89 +940,130 @@ def get_vo2max_segmented(date_str):
 
 
 # %%
-import pytz, logging
-from datetime import datetime, timedelta
-
 def get_training_readiness(date_str):
     """
-    Calculate a 0–100 Training Readiness score for date_str:
-      • CTL = avg banisterTRIMP over the past 42 days
-      • ATL = avg banisterTRIMP over the past 7 days
-      • TSB = CTL - ATL
-      • HRV_norm = overnight RMSSD / 50 (cap at 1.0)
-      • Sleep_norm = sleepScore / 100
-      • Readiness = 40%*TSB_norm + 40%*HRV_norm + 20%*Sleep_norm
+    Compute a 0–100 Training Readiness score:
+      • Acute Load       (20%)  – today’s TRIMP vs 7‑day ATL
+      • HRV Status       (20%)  – last night’s RMSSD
+      • Recovery Time    (20%)  – same as Acute Load
+      • Sleep Score LN   (15%)  – last night’s sleepScore
+      • Sleep History 3N (15%)  – avg sleepScore last 3 nights
+      • Stress History 3D(10%) – avg stressPercentage last 3 days
     """
     points = []
-    # parse date
-    day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
-    # helper to format Influx time strings
-    fmt = lambda dt: dt.isoformat()
-    # 1) fetch last 42 days of TRIMP
-    start_ctl = fmt(day - timedelta(days=41))
+    day   = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+    end_ts = (day + timedelta(hours=23, minutes=59, seconds=59)).isoformat()
+
+    # 1) TRIMP history → CTL & ATL
+    start_ctl = (day - timedelta(days=41)).isoformat()
     res42 = influxdbclient.query(
-        f"SELECT last(\"banisterTRIMP\") FROM \"TrainingLoad\" "
-        f"WHERE time >= '{start_ctl}' and time <= '{fmt(day + timedelta(hours=23,minutes=59))}' "
+        f"SELECT last(\"banisterTRIMP\") AS trimp "
+        "FROM \"TrainingLoad\" "
+        f"WHERE time >= '{start_ctl}' AND time <= '{end_ts}' "
         "GROUP BY time(1d)"
     )
-    loads42 = [p['last'] for p in res42.get_points() if p.get('last') is not None]
-    # 2) fetch last 7 days of TRIMP
-    start_atl = fmt(day - timedelta(days=6))
+    loads42 = [p["trimp"] for p in res42.get_points() if p.get("trimp") is not None]
+
+    start_atl = (day - timedelta(days=6)).isoformat()
     res7 = influxdbclient.query(
-        f"SELECT last(\"banisterTRIMP\") FROM \"TrainingLoad\" "
-        f"WHERE time >= '{start_atl}' and time <= '{fmt(day + timedelta(hours=23,minutes=59))}' "
+        f"SELECT last(\"banisterTRIMP\") AS trimp "
+        "FROM \"TrainingLoad\" "
+        f"WHERE time >= '{start_atl}' AND time <= '{end_ts}' "
         "GROUP BY time(1d)"
     )
-    loads7 = [p['last'] for p in res7.get_points() if p.get('last') is not None]
+    loads7 = [p["trimp"] for p in res7.get_points() if p.get("trimp") is not None]
 
-    if len(loads7) < 3:
-        logging.debug(f"Not enough load history for {date_str}, skipping readiness")
-        return []
+    today_trimp = loads7[-1] if loads7 else 0.0
+    ctl = mean(loads42) if loads42 else 0.0
+    atl = mean(loads7)  if loads7 else 0.0
 
-    ctl = sum(loads42) / len(loads42) if loads42 else 0
-    atl = sum(loads7)  / len(loads7)
-    tsb = ctl - atl
+    logging.debug(f"{date_str}: loads7={loads7}, today_trimp={today_trimp:.1f}, CTL={ctl:.1f}, ATL={atl:.1f}")
 
-    # normalize TSB: assume +/-30 pts covers most users
-    tsb_norm = max(0.0, min((tsb + 30)/60, 1.0))
+    # 2) Acute Load & Recovery (20% each)
+    acute_score = 1.0 - min(today_trimp / atl, 1.0) if atl > 0 else 1.0
+    recovery_score = acute_score
+    logging.debug(f"{date_str}: acute_score={acute_score:.3f}")
 
-    # 3) fetch HRV & sleep score from that night’s SleepSummary
+    # 3) Sleep & HRV (35% total)
     sleep_res = influxdbclient.query(
-        f"SELECT last(\"avgOvernightHrv\") AS hrv, "
-        f"last(\"sleepScore\") AS slp "
-        f"FROM \"SleepSummary\" "
-        f"WHERE time >= '{fmt(day)}' AND time <= '{fmt(day + timedelta(hours=23,minutes=59))}'"
+        f"SELECT last(\"sleepScore\") AS slp, last(\"avgOvernightHrv\") AS hrv "
+        "FROM \"SleepSummary\" "
+        f"WHERE time >= '{day.isoformat()}' AND time <= '{end_ts}'"
     ).get_points()
     rec = next(sleep_res, {})
-    hrv = rec.get('hrv') or 0
-    sleep = rec.get('slp') or 0
+    sleep_last = rec.get("slp", 0.0)
+    hrv        = rec.get("hrv", 0.0)
 
-    hrv_norm   = min(hrv/50.0, 1.0)    # cap at RMSSD=50ms
-    sleep_norm = sleep/100.0
+    sleep_score = min(sleep_last / 100.0, 1.0)
+    hrv_score   = min(hrv / 50.0, 1.0)
 
-    # 4) weighted sum → 0–1
-    readiness = 0.4*tsb_norm + 0.4*hrv_norm + 0.2*sleep_norm
-    readiness_pct = round(readiness * 100, 0)
+    # Sleep history (last 3 nights)
+    start_sleep3 = (day - timedelta(days=2)).isoformat()
+    s3 = influxdbclient.query(
+        f"SELECT last(\"sleepScore\") AS slp "
+        "FROM \"SleepSummary\" "
+        f"WHERE time >= '{start_sleep3}' AND time <= '{end_ts}' "
+        "GROUP BY time(1d)"
+    )
+    sleeps = [p["slp"] for p in s3.get_points() if p.get("slp") is not None]
+    sleep_hist_score = (mean(sleeps)/100.0) if sleeps else sleep_score
 
-    # 5) write one point at UTC midnight of date_str
-    ts = fmt(day)
+    logging.debug(f"{date_str}: sleep_last={sleep_last}, sleep_hist_scores={sleeps}")
+
+    # 4) Stress history (last 3 days) – use stressPercentage
+    start_str3 = (day - timedelta(days=2)).isoformat()
+    sres = influxdbclient.query(
+        f"SELECT last(\"stressPercentage\") AS sp "
+        "FROM \"DailyStats\" "
+        f"WHERE time >= '{start_str3}' AND time <= '{end_ts}' "
+        "GROUP BY time(1d)"
+    )
+    stress_pcts = [p["sp"] for p in sres.get_points() if p.get("sp") is not None]
+
+    if len(stress_pcts) < 3:
+        stress_score = 0.5
+    else:
+        avg_pct = mean(stress_pcts)
+        stress_score = 1.0 - min(avg_pct/100.0, 1.0)
+
+    logging.info(f"{date_str}: stress_pcts={stress_pcts}, stress_score={stress_score:.3f}")
+
+    # 5) Combine with weights
+    readiness = (
+            0.20 * acute_score +
+            0.20 * hrv_score +
+            0.20 * recovery_score +
+            0.15 * sleep_score +
+            0.15 * sleep_hist_score +
+            0.10 * stress_score
+    )
+    readiness_pct = round(readiness * 100)
+
+    logging.info(
+        f"{date_str} – components: acute={acute_score:.3f}, hrv={hrv_score:.3f}, "
+        f"rec={recovery_score:.3f}, sleepLN={sleep_score:.3f}, "
+        f"sleep3N={sleep_hist_score:.3f}, stress={stress_score:.3f}"
+    )
+    logging.info(f"Training Readiness: {readiness_pct}%")
+
+    # 6) Write to Influx
     points.append({
         "measurement": "TrainingReadiness",
-        "time":        ts,
+        "time":        day.isoformat(),
         "tags":        {"Device": GARMIN_DEVICENAME},
         "fields": {
-            "readiness": readiness_pct,
-            "TSB": round(tsb,1),
-            "CTL": round(ctl,1),
-            "ATL": round(atl,1),
-            "avgOvernightHrv": round(hrv,1),
-            "sleepScore": round(sleep,1)
+            "readiness":       readiness_pct,
+            "CTL":             round(ctl, 1),
+            "ATL":             round(atl, 1),
+            "TSB":             round(ctl - atl, 1),
+            "sleepScore":      round(sleep_last, 1),
+            "sleepHist":       round(sleep_hist_score*100, 1),
+            "avgOvernightHrv": round(hrv, 1),
+            "stressPct":       round(avg_pct if stress_pcts else 0, 1)
         }
     })
 
-    logging.info(f"Success: Training Readiness={readiness_pct}% for {date_str}")
     return points
-
 
 # %%
 def get_lactate_threshold(date_str):
@@ -1199,23 +1243,27 @@ def daily_fetch_write(date_str):
     # write_points_to_influxdb(get_vo2max(date_str))
     # write_points_to_influxdb(get_activity_vo2(date_str))
     # write_points_to_influxdb(get_vo2max_segmented(date_str))
-    # write_points_to_influxdb(get_training_readiness(date_str))
-    write_points_to_influxdb(get_lactate_threshold(date_str))
+
+    write_points_to_influxdb(get_training_readiness(date_str))
+    # write_points_to_influxdb(get_lactate_threshold(date_str))
 
 
 # %%
 def fetch_write_bulk(start_date_str, end_date_str):
     global garmin_obj
-    logging.info("Fetching data for the given period in reverse chronological order")
+    # influxdbclient.query('DROP MEASUREMENT "TrainingReadiness"')
+
+    logging.info(f"Fetching data for the given period in chronological order: "
+                 f"{start_date_str} → {end_date_str}")
     time.sleep(3)
     write_points_to_influxdb(get_last_sync())
+
     for current_date in iter_days(start_date_str, end_date_str):
         repeat_loop = True
         while repeat_loop:
             try:
                 daily_fetch_write(current_date)
-                logging.info(
-                    f"Success : Fetched all available health metrics for date {current_date} (skipped any if unavailable)")
+                logging.info(f"Success : Fetched all available metrics for {current_date}")
                 logging.info(f"Waiting : for {RATE_LIMIT_CALLS_SECONDS} seconds")
                 time.sleep(RATE_LIMIT_CALLS_SECONDS)
                 repeat_loop = False
