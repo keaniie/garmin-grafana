@@ -761,11 +761,30 @@ def get_activity_vo2(date_str):
                 weight = m['weight']
                 break
 
+    # 1b) Fallback: if still no weight, query InfluxDB for last known
+    if weight is None:
+        # midnight at end of the day
+        day_end = (
+            datetime.strptime(date_str, "%Y-%m-%d")
+            .replace(hour=23, minute=59, second=59, tzinfo=pytz.UTC)
+            .isoformat()
+        )
+        q = influxdbclient.query(
+            f"SELECT last(\"weight\") AS w "
+            f"FROM \"BodyComposition\" "
+            f"WHERE \"Device\" = '{GARMIN_DEVICENAME}' AND time <= '{day_end}'"
+        )
+        pts = list(q.get_points())
+        if pts and pts[0].get("w") is not None:
+            weight = pts[0]["w"]
+
+
     # 2) fetch all activities for that day
     acts = garmin_obj.get_activities_by_date(date_str, date_str)
     for act in acts:
         typ = act.get("activityType", {}).get("typeKey")
-        if typ not in ("running", "cycling", "cycling_road", "cycling_mountain", "cycling_indoor"):
+        if typ not in ("running", "cycling", "cycling_road", "cycling_mountain", "cycling_indoor", "indoor_cycling", "virtual_ride"):
+            logging.info(f"Skipping VO2 for activity {act.get('activityId')} because type '{type}' is not in list")
             continue
 
         start = act.get("startTimeGMT")
@@ -797,13 +816,13 @@ def get_activity_vo2(date_str):
             if max_sp:
                 fields["vo2_run_peak"] = round(vo2_run(max_sp), 2)
 
-        # handle any cycling subtype
-        if typ.startswith("cycling") and weight:
-            avg_pw = act.get("averageWatts")
-            max_pw = act.get("maxWatts")
+        if (typ.startswith("cycling") or typ.startswith("virtual_ride") or typ.startswith("indoor_cycling")) and weight:
+            avg_pw = act.get("avgPower") or act.get("averageWatts")
+            max_pw = act.get("maxPower") or act.get("maxWatts")
+            weight = weight / 1000.0
 
             def vo2_cyc(watts):
-                work_rate = watts * 6.12  # kgm/min
+                work_rate = watts * 6.12
                 return (1.8 * work_rate / weight) + 7
 
             if avg_pw:
@@ -820,7 +839,7 @@ def get_activity_vo2(date_str):
             })
 
     if points:
-        logging.info(f"Success : Estimated VO₂ for {len(points)} point(s) on {date_str}")
+        logging.info(f"Success : Estimated VO₂ for {len(points)} point(s) on {date_str} with points: {points}")
     return points
 
 
@@ -1258,6 +1277,7 @@ def fetch_activity_GPS(activityIDdict):
             return []
         ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2",
               "ns3": "http://www.garmin.com/xmlschemas/ActivityExtension/v2"}
+        activity_type = None
         for activity in root.findall("tcx:Activities/tcx:Activity", ns):
             activity_type = activityIDdict[activityID]
             activity_start_time = datetime.fromisoformat(activity.find("tcx:Id", ns).text.strip("Z"))
@@ -1321,31 +1341,31 @@ def fetch_activity_GPS(activityIDdict):
                     points_list.append(point)
 
                 lap_index += 1
-        logging.info(f"Success : Fetching TCX details for activity with id {activityID}")
+        logging.info(f"Success : Fetching TCX details for activity with id {activityID} and type {activity_type}")
     return points_list
 
 
 # %%
 def daily_fetch_write(date_str):
-    write_points_to_influxdb(get_daily_stats(date_str))
-    write_points_to_influxdb(get_sleep_data(date_str))
-    write_points_to_influxdb(get_intraday_steps(date_str))
-    write_points_to_influxdb(get_intraday_hr(date_str))
-    write_points_to_influxdb(get_intraday_stress(date_str))
-    write_points_to_influxdb(get_intraday_br(date_str))
-    write_points_to_influxdb(get_intraday_hrv(date_str))
-    write_points_to_influxdb(get_body_composition(date_str))
-    activity_summary_points_list, activity_with_gps_id_dict = get_activity_summary(date_str)
-    write_points_to_influxdb(activity_summary_points_list)
-    write_points_to_influxdb(fetch_activity_GPS(activity_with_gps_id_dict))
-    write_points_to_influxdb(get_training_load(date_str))
-    write_points_to_influxdb(get_vo2max(date_str))
+    # write_points_to_influxdb(get_daily_stats(date_str))
+    # write_points_to_influxdb(get_sleep_data(date_str))
+    # write_points_to_influxdb(get_intraday_steps(date_str))
+    # write_points_to_influxdb(get_intraday_hr(date_str))
+    # write_points_to_influxdb(get_intraday_stress(date_str))
+    # write_points_to_influxdb(get_intraday_br(date_str))
+    # write_points_to_influxdb(get_intraday_hrv(date_str))
+    # write_points_to_influxdb(get_body_composition(date_str))
+    # activity_summary_points_list, activity_with_gps_id_dict = get_activity_summary(date_str)
+    # write_points_to_influxdb(activity_summary_points_list)
+    # write_points_to_influxdb(fetch_activity_GPS(activity_with_gps_id_dict))
+    # write_points_to_influxdb(get_training_load(date_str))
+    # write_points_to_influxdb(get_vo2max(date_str))
     write_points_to_influxdb(get_activity_vo2(date_str))
-    write_points_to_influxdb(get_vo2max_segmented(date_str))
-    write_points_to_influxdb(get_training_readiness(date_str))
-    write_points_to_influxdb(get_lactate_threshold(date_str))
-    write_points_to_influxdb(get_acwr(date_str))
-    write_points_to_influxdb(get_hrv_baseline(date_str))
+    # write_points_to_influxdb(get_vo2max_segmented(date_str))
+    # write_points_to_influxdb(get_training_readiness(date_str))
+    # write_points_to_influxdb(get_lactate_threshold(date_str))
+    # write_points_to_influxdb(get_acwr(date_str))
+    # write_points_to_influxdb(get_hrv_baseline(date_str))
 
 
 # %%
