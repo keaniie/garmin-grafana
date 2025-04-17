@@ -1,18 +1,15 @@
 # %%
 import base64
-from statistics import mean, median
-
-import dotenv
 import logging
-import math
 import os
-import pytz
-import requests
 import sys
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime
+from statistics import mean, median
 
+import dotenv
+import requests
 from garminconnect import (
     Garmin,
     GarminConnectAuthenticationError,
@@ -61,7 +58,7 @@ MANUAL_END_DATE = os.getenv("MANUAL_END_DATE", datetime.today().strftime(
     '%Y-%m-%d'))  # optional, in YYYY-MM-DD format, if you want to bulk update until a specific date
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")  # optional
 FETCH_FAILED_WAIT_SECONDS = int(os.getenv("FETCH_FAILED_WAIT_SECONDS", 1800))  # optional
-RATE_LIMIT_CALLS_SECONDS = int(os.getenv("RATE_LIMIT_CALLS_SECONDS", 5))  # optional
+RATE_LIMIT_CALLS_SECONDS = int(os.getenv("RATE_LIMIT_CALLS_SECONDS", 2))  # optional
 INFLUXDB_ENDPOINT_IS_HTTP = False if os.getenv("INFLUXDB_ENDPOINT_IS_HTTP") in ['False', 'false', 'FALSE', 'f', 'F',
                                                                                 'no', 'No', 'NO',
                                                                                 '0'] else True  # optional
@@ -649,8 +646,6 @@ def get_activity_summary(date_str):
 
 # %%
 import math
-import pytz
-from datetime import datetime
 
 
 def get_training_load(date_str):
@@ -1083,12 +1078,12 @@ def get_lactate_threshold(date_str):
         logging.debug(f"No valid threshold-speed points on {date_str}")
         return []
 
-    avg_pace = median(pace_list)
-    logging.debug(f"{len(pace_list)} threshold points on {date_str}")
+    med_pace = median(pace_list)
+    logging.debug(f"{len(pace_list)} threshold points on {date_str}, median pace={med_pace:.2f}")
 
-    mins = int(avg_pace)
-    secs = int(round((avg_pace - mins) * 60))
-    pace_str = f"{mins:02d}:{secs:02d}"  # e.g. "05:15"
+    mins = int(med_pace)
+    secs = int(round((med_pace - mins) * 60))
+    pace_str = f"{mins:02d}:{secs:02d}"
 
     # 3) write result at midnight UTC
     ts = datetime.strptime(date_str, "%Y-%m-%d") \
@@ -1098,12 +1093,13 @@ def get_lactate_threshold(date_str):
         "time":        ts,
         "tags":        {"Device": GARMIN_DEVICENAME},
         "fields": {
-            "hr_lactate":   round(hr_target, 1),
-            "pace_lactate": pace_str
+            "hr_lactate":       round(hr_target, 1),
+            "pace_lactate_num":     round(med_pace,  2),
+            "pace_lactate_str": pace_str
         }
     })
 
-    logging.info(f"LT HR≈{hr_target:.1f}, pace≈{avg_pace:.2f} min/km on {date_str}")
+    logging.info(f"LT HR≈{hr_target:.1f}, median pace≈{med_pace:.2f} min/km on {date_str}")
     return points
 
 
@@ -1188,22 +1184,22 @@ def fetch_activity_GPS(activityIDdict):
 
 # %%
 def daily_fetch_write(date_str):
-    write_points_to_influxdb(get_daily_stats(date_str))
-    write_points_to_influxdb(get_sleep_data(date_str))
-    write_points_to_influxdb(get_intraday_steps(date_str))
-    write_points_to_influxdb(get_intraday_hr(date_str))
-    write_points_to_influxdb(get_intraday_stress(date_str))
-    write_points_to_influxdb(get_intraday_br(date_str))
-    write_points_to_influxdb(get_intraday_hrv(date_str))
-    write_points_to_influxdb(get_body_composition(date_str))
-    activity_summary_points_list, activity_with_gps_id_dict = get_activity_summary(date_str)
-    write_points_to_influxdb(activity_summary_points_list)
-    write_points_to_influxdb(fetch_activity_GPS(activity_with_gps_id_dict))
-    write_points_to_influxdb(get_training_load(date_str))
-    write_points_to_influxdb(get_vo2max(date_str))
-    write_points_to_influxdb(get_activity_vo2(date_str))
-    write_points_to_influxdb(get_vo2max_segmented(date_str))
-    write_points_to_influxdb(get_training_readiness(date_str))
+    # write_points_to_influxdb(get_daily_stats(date_str))
+    # write_points_to_influxdb(get_sleep_data(date_str))
+    # write_points_to_influxdb(get_intraday_steps(date_str))
+    # write_points_to_influxdb(get_intraday_hr(date_str))
+    # write_points_to_influxdb(get_intraday_stress(date_str))
+    # write_points_to_influxdb(get_intraday_br(date_str))
+    # write_points_to_influxdb(get_intraday_hrv(date_str))
+    # write_points_to_influxdb(get_body_composition(date_str))
+    # activity_summary_points_list, activity_with_gps_id_dict = get_activity_summary(date_str)
+    # write_points_to_influxdb(activity_summary_points_list)
+    # write_points_to_influxdb(fetch_activity_GPS(activity_with_gps_id_dict))
+    # write_points_to_influxdb(get_training_load(date_str))
+    # write_points_to_influxdb(get_vo2max(date_str))
+    # write_points_to_influxdb(get_activity_vo2(date_str))
+    # write_points_to_influxdb(get_vo2max_segmented(date_str))
+    # write_points_to_influxdb(get_training_readiness(date_str))
     write_points_to_influxdb(get_lactate_threshold(date_str))
 
 

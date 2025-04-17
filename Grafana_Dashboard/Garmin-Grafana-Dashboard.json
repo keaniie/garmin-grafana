@@ -3221,7 +3221,7 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "query": "SELECT last(\"hr_lactate\") as \"LT HR\", last(\"pace_lactate\") as \"LT pace\"\n  FROM \"LactateThreshold\"\n  WHERE $timeFilter\n  GROUP BY time(1d,2h) fill(null)",
+          "query": "SELECT last(\"hr_lactate\") as \"LT HR\", last(\"pace_lactate_num\") as \"LT pace\"\n  FROM \"LactateThreshold\"\n  WHERE $timeFilter\n  GROUP BY time(1d,2h) fill(null)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
