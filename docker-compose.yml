@@ -6,7 +6,9 @@ services:
     depends_on:
       - influxdb
     volumes:
-      - ./garminconnect-tokens:/home/appuser/.garminconnect # (persistant tokens storage - garminconnect-tokens folder must be owned by 1000:1000)
+      - ~/.garminconnect:/home/appuser/.garminconnect
+      - ./garmin-fetch.py:/app/garmin-fetch.py
+
     environment:
       - INFLUXDB_HOST=influxdb
       - INFLUXDB_PORT=8086
