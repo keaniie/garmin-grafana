@@ -1019,11 +1019,11 @@ def get_training_readiness(date_str):
         "GROUP BY time(1d)"
     )
     stress_pcts = [p["sp"] for p in sres.get_points() if p.get("sp") is not None]
+    avg_pct = mean(stress_pcts) if stress_pcts else 0.0
 
     if len(stress_pcts) < 3:
         stress_score = 0.5
     else:
-        avg_pct = mean(stress_pcts)
         stress_score = 1.0 - min(avg_pct/100.0, 1.0)
 
     logging.info(f"{date_str}: stress_pcts={stress_pcts}, stress_score={stress_score:.3f}")
@@ -1228,24 +1228,23 @@ def fetch_activity_GPS(activityIDdict):
 
 # %%
 def daily_fetch_write(date_str):
-    # write_points_to_influxdb(get_daily_stats(date_str))
-    # write_points_to_influxdb(get_sleep_data(date_str))
-    # write_points_to_influxdb(get_intraday_steps(date_str))
-    # write_points_to_influxdb(get_intraday_hr(date_str))
-    # write_points_to_influxdb(get_intraday_stress(date_str))
-    # write_points_to_influxdb(get_intraday_br(date_str))
-    # write_points_to_influxdb(get_intraday_hrv(date_str))
-    # write_points_to_influxdb(get_body_composition(date_str))
-    # activity_summary_points_list, activity_with_gps_id_dict = get_activity_summary(date_str)
-    # write_points_to_influxdb(activity_summary_points_list)
-    # write_points_to_influxdb(fetch_activity_GPS(activity_with_gps_id_dict))
-    # write_points_to_influxdb(get_training_load(date_str))
-    # write_points_to_influxdb(get_vo2max(date_str))
-    # write_points_to_influxdb(get_activity_vo2(date_str))
-    # write_points_to_influxdb(get_vo2max_segmented(date_str))
-
+    write_points_to_influxdb(get_daily_stats(date_str))
+    write_points_to_influxdb(get_sleep_data(date_str))
+    write_points_to_influxdb(get_intraday_steps(date_str))
+    write_points_to_influxdb(get_intraday_hr(date_str))
+    write_points_to_influxdb(get_intraday_stress(date_str))
+    write_points_to_influxdb(get_intraday_br(date_str))
+    write_points_to_influxdb(get_intraday_hrv(date_str))
+    write_points_to_influxdb(get_body_composition(date_str))
+    activity_summary_points_list, activity_with_gps_id_dict = get_activity_summary(date_str)
+    write_points_to_influxdb(activity_summary_points_list)
+    write_points_to_influxdb(fetch_activity_GPS(activity_with_gps_id_dict))
+    write_points_to_influxdb(get_training_load(date_str))
+    write_points_to_influxdb(get_vo2max(date_str))
+    write_points_to_influxdb(get_activity_vo2(date_str))
+    write_points_to_influxdb(get_vo2max_segmented(date_str))
     write_points_to_influxdb(get_training_readiness(date_str))
-    # write_points_to_influxdb(get_lactate_threshold(date_str))
+    write_points_to_influxdb(get_lactate_threshold(date_str))
 
 
 # %%
