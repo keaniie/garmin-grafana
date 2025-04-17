@@ -59,7 +59,7 @@ MANUAL_END_DATE = os.getenv("MANUAL_END_DATE", datetime.today().strftime(
     '%Y-%m-%d'))  # optional, in YYYY-MM-DD format, if you want to bulk update until a specific date
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")  # optional
 FETCH_FAILED_WAIT_SECONDS = int(os.getenv("FETCH_FAILED_WAIT_SECONDS", 1800))  # optional
-RATE_LIMIT_CALLS_SECONDS = int(os.getenv("RATE_LIMIT_CALLS_SECONDS", 2))  # optional
+RATE_LIMIT_CALLS_SECONDS = int(os.getenv("RATE_LIMIT_CALLS_SECONDS", 5))  # optional
 INFLUXDB_ENDPOINT_IS_HTTP = False if os.getenv("INFLUXDB_ENDPOINT_IS_HTTP") in ['False', 'false', 'FALSE', 'f', 'F',
                                                                                 'no', 'No', 'NO',
                                                                                 '0'] else True  # optional
@@ -99,7 +99,7 @@ def iter_days(start_date: str, end_date: str):
     Yield YYYY‑MM‑DD from start_date up to end_date, oldest first.
     """
     start = datetime.strptime(start_date, "%Y-%m-%d")
-    end   = datetime.strptime(end_date,   "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
     current = start
     while current <= end:
         yield current.strftime("%Y-%m-%d")
@@ -837,7 +837,7 @@ def get_vo2max_segmented(date_str):
 
     # 1) fetch RHR & HRmax
     stats = garmin_obj.get_stats(date_str)
-    rhr   = stats.get("restingHeartRate")
+    rhr = stats.get("restingHeartRate")
     maxhr = stats.get("maxHeartRate")
     if not rhr or not maxhr or maxhr <= rhr:
         logging.debug(f"No valid RHR/MHR on {date_str}, skipping segmented VO2max")
@@ -872,10 +872,10 @@ def get_vo2max_segmented(date_str):
         for tp in root.findall(".//tcx:Trackpoint", ns):
             hr = tp.findtext("tcx:HeartRateBpm/tcx:Value", namespaces=ns)
             sp = tp.findtext("tcx:Extensions/ns3:TPX/ns3:Speed", namespaces=ns)
-            t  = tp.findtext("tcx:Time", namespaces=ns)
+            t = tp.findtext("tcx:Time", namespaces=ns)
             if hr and sp and t:
                 track.append((
-                    datetime.fromisoformat(t.replace("Z","")).timestamp(),
+                    datetime.fromisoformat(t.replace("Z", "")).timestamp(),
                     float(hr), float(sp)
                 ))
 
@@ -887,13 +887,13 @@ def get_vo2max_segmented(date_str):
             .replace(tzinfo=pytz.UTC).isoformat()
         return [{
             "measurement": "VO2Max",
-            "time":        ts,
-            "tags":        {"Device": GARMIN_DEVICENAME},
-            "fields":      {"estimate": round(vo2_uth, 2)}
+            "time": ts,
+            "tags": {"Device": GARMIN_DEVICENAME},
+            "fields": {"estimate": round(vo2_uth, 2)}
         }]
 
     # 4) segment into ≥10 min chunks at ≥70% HRmax
-    hr_thr = rhr + 0.7*(maxhr - rhr)
+    hr_thr = rhr + 0.7 * (maxhr - rhr)
     segments = []
     seg = []
     for t, hr, sp in track:
@@ -918,10 +918,10 @@ def get_vo2max_segmented(date_str):
     # 6) regress if possible
     if X:
         xm, ym = mean(X), mean(Y)
-        slope = sum((xi-xm)*(yi-ym) for xi,yi in zip(X,Y)) \
-                / sum((xi-xm)**2 for xi in X)
-        intercept = ym - slope*xm
-        vo2max = slope*maxhr + intercept
+        slope = sum((xi - xm) * (yi - ym) for xi, yi in zip(X, Y)) \
+                / sum((xi - xm) ** 2 for xi in X)
+        intercept = ym - slope * xm
+        vo2max = slope * maxhr + intercept
     else:
         vo2max = 15.3 * (maxhr / rhr)  # Uth fallback
 
@@ -930,9 +930,9 @@ def get_vo2max_segmented(date_str):
         .replace(tzinfo=pytz.UTC).isoformat()
     points.append({
         "measurement": "VO2Max",
-        "time":        ts,
-        "tags":        {"Device": GARMIN_DEVICENAME},
-        "fields":      {"estimate": round(vo2max, 2)}
+        "time": ts,
+        "tags": {"Device": GARMIN_DEVICENAME},
+        "fields": {"estimate": round(vo2max, 2)}
     })
 
     logging.info(f"Segmented VO2max={vo2max:.2f} for {date_str}")
@@ -951,7 +951,7 @@ def get_training_readiness(date_str):
       • Stress History 3D(10%) – avg stressPercentage last 3 days
     """
     points = []
-    day   = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+    day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
     end_ts = (day + timedelta(hours=23, minutes=59, seconds=59)).isoformat()
 
     # 1) TRIMP history → CTL & ATL
@@ -975,7 +975,7 @@ def get_training_readiness(date_str):
 
     today_trimp = loads7[-1] if loads7 else 0.0
     ctl = mean(loads42) if loads42 else 0.0
-    atl = mean(loads7)  if loads7 else 0.0
+    atl = mean(loads7) if loads7 else 0.0
 
     logging.debug(f"{date_str}: loads7={loads7}, today_trimp={today_trimp:.1f}, CTL={ctl:.1f}, ATL={atl:.1f}")
 
@@ -992,10 +992,12 @@ def get_training_readiness(date_str):
     ).get_points()
     rec = next(sleep_res, {})
     sleep_last = rec.get("slp", 0.0)
-    hrv        = rec.get("hrv", 0.0)
+    hrv = rec.get("hrv", 0.0)
+    if hrv is None:
+        hrv = 0.0
 
     sleep_score = min(sleep_last / 100.0, 1.0)
-    hrv_score   = min(hrv / 50.0, 1.0)
+    hrv_score = min(hrv / 50.0, 1.0)
 
     # Sleep history (last 3 nights)
     start_sleep3 = (day - timedelta(days=2)).isoformat()
@@ -1006,7 +1008,7 @@ def get_training_readiness(date_str):
         "GROUP BY time(1d)"
     )
     sleeps = [p["slp"] for p in s3.get_points() if p.get("slp") is not None]
-    sleep_hist_score = (mean(sleeps)/100.0) if sleeps else sleep_score
+    sleep_hist_score = (mean(sleeps) / 100.0) if sleeps else sleep_score
 
     logging.debug(f"{date_str}: sleep_last={sleep_last}, sleep_hist_scores={sleeps}")
 
@@ -1024,7 +1026,7 @@ def get_training_readiness(date_str):
     if len(stress_pcts) < 3:
         stress_score = 0.5
     else:
-        stress_score = 1.0 - min(avg_pct/100.0, 1.0)
+        stress_score = 1.0 - min(avg_pct / 100.0, 1.0)
 
     logging.info(f"{date_str}: stress_pcts={stress_pcts}, stress_score={stress_score:.3f}")
 
@@ -1049,21 +1051,118 @@ def get_training_readiness(date_str):
     # 6) Write to Influx
     points.append({
         "measurement": "TrainingReadiness",
-        "time":        day.isoformat(),
-        "tags":        {"Device": GARMIN_DEVICENAME},
+        "time": day.isoformat(),
+        "tags": {"Device": GARMIN_DEVICENAME},
         "fields": {
-            "readiness":       readiness_pct,
-            "CTL":             round(ctl, 1),
-            "ATL":             round(atl, 1),
-            "TSB":             round(ctl - atl, 1),
-            "sleepScore":      round(sleep_last, 1),
-            "sleepHist":       round(sleep_hist_score*100, 1),
+            "readiness": readiness_pct,
+            "CTL": round(ctl, 1),
+            "ATL": round(atl, 1),
+            "TSB": round(ctl - atl, 1),
+            "sleepScore": round(sleep_last, 1),
+            "sleepHist": round(sleep_hist_score * 100, 1),
             "avgOvernightHrv": round(hrv, 1),
-            "stressPct":       round(avg_pct if stress_pcts else 0, 1)
+            "stressPct": round(avg_pct if stress_pcts else 0, 1)
         }
     })
 
     return points
+
+
+# %%
+
+def get_hrv_baseline(date_str):
+    """
+    Calculate a rolling HRV baseline & trend:
+      - baseline = mean(RMSSD last 7 nights)
+      - trend    = mean(RMSSD last 3 nights)
+      - ratio    = trend / baseline
+    Returns list of InfluxDB points or [] if insufficient data.
+    """
+    points = []
+    day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+
+    # Query last 28 nights of RMSSD
+    start28 = (day - timedelta(days=27)).isoformat()
+    res = influxdbclient.query(
+        f"SELECT last(\"avgOvernightHrv\") AS hrv "
+        f"FROM \"SleepSummary\" "
+        f"WHERE time >= '{start28}' AND time <= '{day.isoformat()}' "
+        "GROUP BY time(1d)"
+    )
+    arr = [p["hrv"] for p in res.get_points() if p.get("hrv") is not None]
+
+    # Need at least 7 values to form a baseline
+    if len(arr) < 7:
+        logging.debug(f"Skipping HRV baseline for {date_str}: only {len(arr)} days of data")
+        return []
+
+    baseline = mean(arr[-7:])
+    trend = mean(arr[-3:])
+    ratio = trend / baseline if baseline else None
+
+    ts = day.isoformat()
+    points.append({
+        "measurement": "HRVTrend",
+        "time": ts,
+        "tags": {"Device": GARMIN_DEVICENAME},
+        "fields": {
+            "baseline": round(baseline, 1),
+            "trend": round(trend, 1),
+            "ratio": round(ratio, 3) if ratio is not None else None
+        }
+    })
+    logging.info(f"Success : HRV-baseline={baseline:.1f}, trend={trend:.1f}, ratio={ratio:.3f} on {date_str}")
+    return points
+
+
+# %%
+def get_acwr(date_str):
+    """
+    Calculate Acute:Chronic Workload Ratio (ACWR) for the given date.
+    ACWR = mean(TRIMP last 7 days) / mean(TRIMP last 28 days)
+    Returns a list of InfluxDB points or an empty list if not enough data.
+    """
+    points = []
+    day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+
+    # Helper to query TRIMP over a date range (inclusive)
+    def query_trimp(start_dt, end_dt):
+        q = (
+            influxdbclient.query(
+                f"SELECT last(\"banisterTRIMP\") AS trimp "
+                f"FROM \"TrainingLoad\" "
+                f"WHERE time >= '{start_dt}' AND time <= '{end_dt}' "
+                "GROUP BY time(1d)"
+            )
+            .get_points()
+        )
+        return [p["trimp"] for p in q if p.get("trimp") is not None]
+
+    # Define windows
+    end_ts = day.isoformat()
+    start7 = (day - timedelta(days=6)).isoformat()
+    start28 = (day - timedelta(days=27)).isoformat()
+
+    wk7 = query_trimp(start7, end_ts)
+    wk28 = query_trimp(start28, end_ts)
+
+    # Need at least one week and four weeks of data
+    if len(wk7) < 1 or len(wk28) < 1:
+        return []
+
+    acwr = mean(wk7) / mean(wk28)
+
+    # Build point at midnight UTC
+    ts = day.isoformat()
+    points.append({
+        "measurement": "TrainingLoad",
+        "time": ts,
+        "tags": {"Device": GARMIN_DEVICENAME},
+        "fields": {"ACWR": round(acwr, 2)}
+    })
+    logging.info(f"Success : Calculated ACWR={acwr:.2f} for {date_str}")
+    return points
+
 
 # %%
 def get_lactate_threshold(date_str):
@@ -1087,8 +1186,8 @@ def get_lactate_threshold(date_str):
     acts = garmin_obj.get_activities_by_date(date_str, date_str)
     pace_list = []
     ns = {
-        "tcx":"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2",
-        "ext":"http://www.garmin.com/xmlschemas/ActivityExtension/v2"
+        "tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2",
+        "ext": "http://www.garmin.com/xmlschemas/ActivityExtension/v2"
     }
 
     for a in acts:
@@ -1101,7 +1200,7 @@ def get_lactate_threshold(date_str):
         root = ET.fromstring(tcx)
 
         for tp in root.findall(".//tcx:Trackpoint", ns):
-            hr = tp.findtext("tcx:HeartRateBpm/tcx:Value",   namespaces=ns)
+            hr = tp.findtext("tcx:HeartRateBpm/tcx:Value", namespaces=ns)
             sp = tp.findtext("tcx:Extensions/ext:TPX/ext:Speed", namespaces=ns)
             if not hr or not sp:
                 continue
@@ -1134,11 +1233,11 @@ def get_lactate_threshold(date_str):
         .replace(tzinfo=pytz.UTC).isoformat()
     points.append({
         "measurement": "LactateThreshold",
-        "time":        ts,
-        "tags":        {"Device": GARMIN_DEVICENAME},
+        "time": ts,
+        "tags": {"Device": GARMIN_DEVICENAME},
         "fields": {
-            "hr_lactate":       round(hr_target, 1),
-            "pace_lactate_num":     round(med_pace,  2),
+            "hr_lactate": round(hr_target, 1),
+            "pace_lactate_num": round(med_pace, 2),
             "pace_lactate_str": pace_str
         }
     })
@@ -1245,6 +1344,8 @@ def daily_fetch_write(date_str):
     write_points_to_influxdb(get_vo2max_segmented(date_str))
     write_points_to_influxdb(get_training_readiness(date_str))
     write_points_to_influxdb(get_lactate_threshold(date_str))
+    write_points_to_influxdb(get_acwr(date_str))
+    write_points_to_influxdb(get_hrv_baseline(date_str))
 
 
 # %%
