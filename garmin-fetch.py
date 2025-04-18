@@ -1317,8 +1317,9 @@ def fetch_activity_GPS(activityIDdict):
         logging.info(f"Success : Fetching TCX details for activity with id {activityID}")
     return points_list
 
+
 # Contribution from PR #17 by @arturgoms
-def get_training_readiness(date_str):
+def get_training_readiness_new(date_str):
     points_list = []
     tr_list_all = garmin_obj.get_training_readiness(date_str)
     if tr_list_all:
@@ -1337,7 +1338,7 @@ def get_training_readiness(date_str):
                 }
             if (not all(value is None for value in data_fields.values())) and tr_dict.get('timestamp'):
                 points_list.append({
-                    "measurement":  "TrainingReadiness",
+                    "measurement":  "TrainingReadinessNew",
                     "time": pytz.timezone("UTC").localize(datetime.strptime(tr_dict['timestamp'],"%Y-%m-%dT%H:%M:%S.%f")).isoformat(), # Use GMT 12:00 for daily record
                     "tags": {
                         "Device": GARMIN_DEVICENAME
@@ -1346,6 +1347,7 @@ def get_training_readiness(date_str):
                 })
         logging.info(f"Success : Fetching Training Readiness for date {date_str}")
     return points_list
+
 
 # Contribution from PR #17 by @arturgoms
 def get_hillscore(date_str):
@@ -1372,6 +1374,7 @@ def get_hillscore(date_str):
         logging.info(f"Success : Fetching Hill Score for date {date_str}")
     return points_list
 
+
 # Contribution from PR #17 by @arturgoms
 def get_race_predictions(date_str):
     points_list = []
@@ -1395,22 +1398,45 @@ def get_race_predictions(date_str):
         logging.info(f"Success : Fetching Race Predictions for date {date_str}")
     return points_list
 
+
 def get_vo2_max(date_str):
     points_list = []
-    max_metrics = garmin_obj.get_max_metrics(date_str)
-    if max_metrics:
-        vo2_max_value = max_metrics[0].get("generic", {}).get("vo2MaxPreciseValue")
-        if vo2_max_value:
-            points_list.append({
-                "measurement":  "VO2_Max",
-                "time": datetime.strptime(date_str,"%Y-%m-%d").replace(hour=12, tzinfo=pytz.UTC).isoformat(), # Use GMT 12:00 for daily record
-                "tags": {
-                    "Device": GARMIN_DEVICENAME,
-                },
-                "fields": {"VO2_max_value" : vo2_max_value}
-            })
-            logging.info(f"Success : Fetching VO2-max for date {date_str}")
+    # Ensure we always have a list to scan through
+    max_metrics = garmin_obj.get_max_metrics(date_str) or []
+
+    # Pick the first non-None dict entry (if any)
+    metrics = next((m for m in max_metrics if isinstance(m, dict)), None)
+    if not metrics:
+        logging.warning(f"No VO2-max metrics available for {date_str}")
+        return points_list
+
+    # Prefer 'generic', then fall back to 'cycling'
+    inner = metrics.get("generic") or metrics.get("cycling")
+    if not inner:
+        logging.warning(f"Neither generic nor cycling VO2 data for {date_str}")
+        return points_list
+
+    vo2_max_value = inner.get("vo2MaxPreciseValue")
+    if vo2_max_value is None:
+        logging.warning(f"VO2-max precise value missing for {date_str}")
+        return points_list
+
+    if vo2_max_value is not None:
+        points_list.append({
+            "measurement": "VO2_Max",
+            "time": datetime.strptime(date_str, "%Y-%m-%d")
+            .replace(hour=12, tzinfo=pytz.UTC)
+            .isoformat(),
+            "tags": {"Device": GARMIN_DEVICENAME},
+            "fields": {"VO2_max_value": vo2_max_value}
+        })
+        logging.info(f"Success : Fetching VO2-max for date {date_str}")
+    else:
+        logging.warning(f"VO2-max value is missing or zero for {date_str}")
+
     return points_list
+
+
 # %%
 def daily_fetch_write(date_str):
     write_points_to_influxdb(get_daily_stats(date_str))
@@ -1432,11 +1458,12 @@ def daily_fetch_write(date_str):
     write_points_to_influxdb(get_lactate_threshold(date_str))
     write_points_to_influxdb(get_acwr(date_str))
     write_points_to_influxdb(get_hrv_baseline(date_str))
-    if FETCH_ADVANCED_TRAINING_DATA: # Contribution from PR #17 by @arturgoms
-        write_points_to_influxdb(get_training_readiness(date_str))
+    if FETCH_ADVANCED_TRAINING_DATA:  # Contribution from PR #17 by @arturgoms
+        write_points_to_influxdb(get_training_readiness_new(date_str))
         write_points_to_influxdb(get_hillscore(date_str))
         write_points_to_influxdb(get_race_predictions(date_str))
         write_points_to_influxdb(get_vo2_max(date_str))
+
 
 # %%
 def fetch_write_bulk(start_date_str, end_date_str):

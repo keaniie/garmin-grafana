@@ -17,6 +17,7 @@ services:
       - INFLUXDB_DATABASE=GarminStats
       - UPDATE_INTERVAL_SECONDS=300
       - LOG_LEVEL=INFO
+      - FETCH_ADVANCED_TRAINING_DATA=true
 
   influxdb:
     restart: unless-stopped
