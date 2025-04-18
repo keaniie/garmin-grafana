@@ -48,7 +48,7 @@ If you are a **Fitbit user**, please check out the [sister project](https://gith
 
 5. Finally run : `docker compose up -d` ( to launch the full stack in detached mode ). Thereafter you should check the logs with `docker compose logs --follow` to see any potential error from the containers. This will help you debug the issue, if there is any (specially read/write permission issues). if you are using docker volumes, there are little chance of this happending as file permissions will be managed by docker. For bind mounts, if you are having permission issues, please check the troubleshooting section.
 
-7. Now you can check out the `http://localhost:3000` to reach Grafana (by default), do the initial setup with the default username `admin` and password `admin`, add influxdb as the data source. Please note the influxdb hostname is set as `influxdb` with port `8086` so you should use `http://influxdb:8086` for the address during data source setup and not `http://localhost:8086` because influxdb is a running as a seperate container but part of the same docker network and stack. Test the connection to make sure the influxdb is up and reachable (you are good to go if it finds the measurements when you test the connection)
+7. Now you can check out the `http://localhost:3000` to reach Grafana (by default), do the initial setup with the default username `admin` and password `admin`, add influxdb as the data source. Please note the influxdb hostname is set as `influxdb` with port `8086` so you should use `http://influxdb:8086` for the address during data source setup and not `http://localhost:8086` because influxdb is a running as a seperate container but part of the same docker network and stack. Here the database name should be `GarminStats` matching the influxdb DB name from the docker compose. Use the same username and password you used for your influxdb container (check your docker compose config for influxdb container, here we used `influxdb_user` and `influxdb_secret_password` in default configuration) Test the connection to make sure the influxdb is up and reachable (you are good to go if it finds the measurements when you test the connection)
 
 8. To use the Grafana dashboard, please use the [JSON file](https://github.com/arpanghosh8453/garmin-grafana/blob/main/Grafana_Dashboard/Garmin-Grafana-Dashboard.json) downloaded directly from GitHub or use the import code **23245** to pull them directly from the Grafana dashboard cloud.
 
@@ -114,6 +114,9 @@ volumes:
   grafana_data:
 
 ```
+✅ The Above compose file creates an open read/write access influxdb database with no authentication. Unless you expose this database to the open internet directly, this poses no threat. If you share your local network, you may enable authentication and grant appropriate read/write access to the influxdb_user on the GarminStats database manually if you want with INFLUXDB_ADMIN_ENABLED, INFLUXDB_ADMIN_USER, and INFLUXDB_ADMIN_PASSWORD ENV variables during the setup by following the [influxdb guide](https://github.com/docker-library/docs/blob/master/influxdb/README.md) but this won't be covered here for the sake of simplicity.
+
+✅ You can also enable additional advanced training data fetching with `FETCH_ADVANCED_TRAINING_DATA=True` flag in the compose file. This will fetch and store data such as training readiness, hill score, VO2 max, and Race prediction if you have them available on Garmin connect. The implementations of this should work fine in theory but not throughly tested. This is currently an experimental feature. There is no panel showing these data on the provided grafana dashboard. You must create your own to visualize these on Grafana. 
 
 ## Historical data fetching (bulk update)
 
@@ -132,6 +135,10 @@ Please note that this process is intentionally rate limited with a 5 second wait
 4. After successful bulk fetching, you will see a `Bulk update success` message and the container will exit and remove itself automatically. 
 
 5. Now you can run the regular periodic update with `docker compose up -d`
+
+## Update to new versions
+
+Updating with docker is super simple. Just go to the folder where the `compose.yml` is and run `docker compose pull` and then `docker compose down && docker compose up -d`. Please verify if everything is running correctly by checking the logs with `docker compose logs --follow`
 
 
 ## Troubleshooting
