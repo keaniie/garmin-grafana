@@ -33,7 +33,7 @@ services:
     volumes:
       - influxdb_data:/var/lib/influxdb
     image: 'influxdb:1.11'
-
+    
   grafana:
     restart: unless-stopped
     container_name: grafana
@@ -46,6 +46,8 @@ services:
     ports:
       - '3000:3000'
     image: 'grafana/grafana:latest'
+    network_mode: "host"
+
 
 volumes:
   influxdb_data:
