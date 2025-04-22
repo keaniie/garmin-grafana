@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'garmin-fetch.py'
+      - 'garmin_fetch.py'
       - 'compose-example.yml'
       - 'requirements.txt'
       - 'Dockerfile'

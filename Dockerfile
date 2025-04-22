@@ -8,10 +8,9 @@ COPY requirements.txt .
 RUN python -m pip install -r requirements.txt
 
 WORKDIR /app
-COPY ./garmin-fetch.py /app
-COPY ./requirements.txt /app
+COPY . /app
 
 RUN groupadd --gid 1000 appuser && useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser && chown -R appuser:appuser /app
 USER appuser
 
-CMD ["python", "garmin-fetch.py"]
+CMD ["python", "garmin_fetch.py"]

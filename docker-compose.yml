@@ -1,13 +1,15 @@
 services:
   garmin-fetch-data:
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
-    image: thisisarpanghosh/garmin-fetch-data:latest
     container_name: garmin-fetch-data
     depends_on:
       - influxdb
     volumes:
       - ~/.garminconnect:/home/appuser/.garminconnect
-      - ./garmin-fetch.py:/app/garmin-fetch.py
+      - ./:/app 
 
     environment:
       - INFLUXDB_HOST=influxdb
@@ -46,7 +48,6 @@ services:
     ports:
       - '3000:3000'
     image: 'grafana/grafana:latest'
-    network_mode: "host"
 
 
 volumes:
