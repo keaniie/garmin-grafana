@@ -841,41 +841,41 @@ def get_vo2_max(date_str):
 
 # %%
 def daily_fetch_write(date_str):
-    write_points_to_influxdb(get_daily_stats(date_str))
-    write_points_to_influxdb(get_sleep_data(date_str))
-    write_points_to_influxdb(get_intraday_steps(date_str))
-    write_points_to_influxdb(get_intraday_hr(date_str))
-    write_points_to_influxdb(get_intraday_stress(date_str))
-    write_points_to_influxdb(get_intraday_br(date_str))
-    write_points_to_influxdb(get_intraday_hrv(date_str))
-    write_points_to_influxdb(get_body_composition(date_str))
-    activity_summary_points_list, activity_with_gps_id_dict = get_activity_summary(date_str)
-    write_points_to_influxdb(activity_summary_points_list)
-    #### custom
-    write_points_to_influxdb(fetch_activity_GPS(activity_with_gps_id_dict))
-    # write_points_to_influxdb(get_training_load(garmin_obj, date_str))
-    write_points_to_influxdb(get_vo2max(garmin_obj, date_str, GARMIN_DEVICENAME))
-    write_points_to_influxdb(get_activity_vo2(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
-    write_points_to_influxdb(get_vo2max_segmented(garmin_obj, date_str, GARMIN_DEVICENAME))
-    write_points_to_influxdb(get_training_readiness(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
-    write_points_to_influxdb(get_lactate_threshold(garmin_obj, date_str, GARMIN_DEVICENAME))
-    write_points_to_influxdb(get_acwr(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
-    write_points_to_influxdb(get_hrv_baseline(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
-    write_points_to_influxdb(get_training_load_focus(garmin_obj, date_str, GARMIN_DEVICENAME))
-    write_points_to_influxdb(get_readiness_inputs(garmin_obj, date_str))
-
-    ####
-    if FETCH_ADVANCED_TRAINING_DATA:  # Contribution from PR #17 by @arturgoms
-        write_points_to_influxdb(get_training_readiness_new(date_str))
-        write_points_to_influxdb(get_hillscore(date_str))
-        write_points_to_influxdb(get_race_predictions(date_str))
-        write_points_to_influxdb(get_vo2_max(date_str))
+   write_points_to_influxdb(get_daily_stats(date_str))
+   write_points_to_influxdb(get_sleep_data(date_str))
+   write_points_to_influxdb(get_intraday_steps(date_str))
+   write_points_to_influxdb(get_intraday_hr(date_str))
+   write_points_to_influxdb(get_intraday_stress(date_str))
+   write_points_to_influxdb(get_intraday_br(date_str))
+   write_points_to_influxdb(get_intraday_hrv(date_str))
+   write_points_to_influxdb(get_body_composition(date_str))
+   activity_summary_points_list, activity_with_gps_id_dict = get_activity_summary(date_str)
+   write_points_to_influxdb(activity_summary_points_list)
+   #### custom
+   write_points_to_influxdb(fetch_activity_GPS(activity_with_gps_id_dict))
+   # write_points_to_influxdb(get_training_load(garmin_obj, date_str))
+   write_points_to_influxdb(get_vo2max(garmin_obj, date_str, GARMIN_DEVICENAME))
+   write_points_to_influxdb(get_activity_vo2(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
+   write_points_to_influxdb(get_vo2max_segmented(garmin_obj, date_str, GARMIN_DEVICENAME))
+   # write_points_to_influxdb(get_training_readiness(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
+   write_points_to_influxdb(get_lactate_threshold(garmin_obj, date_str, GARMIN_DEVICENAME))
+   write_points_to_influxdb(get_acwr(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
+   write_points_to_influxdb(get_hrv_baseline(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
+   write_points_to_influxdb(get_training_load_focus(garmin_obj, date_str, GARMIN_DEVICENAME))
+   write_points_to_influxdb(get_readiness_inputs(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
+ 
+   ####
+   if FETCH_ADVANCED_TRAINING_DATA:  # Contribution from PR #17 by @arturgoms
+       write_points_to_influxdb(get_training_readiness_new(date_str))
+       write_points_to_influxdb(get_hillscore(date_str))
+       write_points_to_influxdb(get_race_predictions(date_str))
+       write_points_to_influxdb(get_vo2_max(date_str))
 
 
 # %%
 def fetch_write_bulk(start_date_str, end_date_str):
     global garmin_obj
-    # influxdbclient.query('DROP MEASUREMENT "TrainingReadiness"')
+    #influxdbclient.query('DROP MEASUREMENT "ReadinessInputs"')
 
     logging.info(f"Fetching data for the given period in chronological order: "
                  f"{start_date_str} → {end_date_str}")

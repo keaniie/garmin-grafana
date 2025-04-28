@@ -627,48 +627,96 @@ def get_training_load_focus(garmin_obj, date_str, garmin_device_name):
 
 
 # %%
-def get_readiness_inputs(garmin_obj, date_str):
+def compute_ctl_atl(date_str, influxdbclient, device):
     """
-    Fetch all raw inputs for Training Readiness:
-      - bodyBatteryAtWake
-      - avgOvernightHrv
-      - sleepScore
-      - acuteLoad (today’s TRIMP)
-      - ATL, CTL
-      - stressPct
-    Returns a list of InfluxDB points.
+    Returns a tuple (ATL, CTL) for the given date:
+      • ATL = mean(TRIMP last 7 days)
+      • CTL = mean(TRIMP last 42 days)
     """
-    points = []
+    # parse our reference day at UTC midnight
+    day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+    end_ts = day + timedelta(hours=23, minutes=59, seconds=59)
 
-    # 1) Fetch daily stats
-    stats = garmin_obj.get_stats(date_str)
-    bb_wake = stats.get('bodyBatteryAtWakeTime') or stats.get('bodyBatteryAtWake')
-    sleep = stats.get('overallSleepScore')
-    hr_stats = garmin_obj.get_stats(date_str)  # reuse if needed
+    # helper to query banisterTRIMP over a window
+    def query_trimp(start_delta_days):
+        start = (day - timedelta(days=start_delta_days - 1)).isoformat()
+        end   = end_ts.isoformat()
+        q = influxdbclient.query(
+            f"SELECT last(\"banisterTRIMP\") AS trimp "
+            f"FROM \"TrainingLoad\" "
+            f"WHERE time >= '{start}' AND time <= '{end}' "
+            "GROUP BY time(1d)"
+        ).get_points()
+        return [pt["trimp"] for pt in q if pt.get("trimp") is not None]
 
-    # 2) Fetch TRIMP and load history (via your existing functions)
-    trimp_today = get_training_load(garmin_obj, date_str, ...)  # adapt arguments
-    ctl, atl = compute_ctl_atl(date_str)  # you can wrap your load-focus logic
+    # ATL = 7-day average
+    trimp_7  = query_trimp(7)
+    atl      = mean(trimp_7) if trimp_7 else 0.0
 
-    # 3) Fetch stress percentage
-    stress_pct = stats.get('stressPercentage')
+    # CTL = 42-day average
+    trimp_42 = query_trimp(42)
+    ctl      = mean(trimp_42) if trimp_42 else 0.0
 
-    # 4) Assemble point
-    points.append({
+    return atl, ctl
+
+
+ 
+def get_readiness_inputs(garmin_obj, date_str, influxdbclient, device):
+    """
+    Always emit exactly one ReadinessInputs point for the given date_str,
+    filling missing metrics with zeros or None so last(...) and fill(previous)
+    in your Grafana query will work correctly.
+    """
+    from datetime import datetime, timedelta
+    import pytz
+    from statistics import mean
+
+    # 1) Build day boundaries
+    day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+    start_dt = day
+    end_dt   = day + timedelta(days=1)
+
+    # 2) Pull Garmin daily stats
+    stats = garmin_obj.get_stats(date_str) or {}
+    bb_wake    = stats.get("bodyBatteryAtWakeTime") or stats.get("bodyBatteryAtWake") or None
+    stress_pct = stats.get("stressPercentage") or 0.0
+
+    # 3) Pull sleep summary
+    sleep = garmin_obj.get_sleep_data(date_str) or {}
+    avg_hrv     = sleep.get("avgOvernightHrv") or None
+    sleep_score = (sleep.get("dailySleepDTO", {})
+                       .get("sleepScores", {})
+                       .get("overall", {})
+                       .get("value")) or None
+
+    # 4) Compute 3-night sleep history
+    pts = list(influxdbclient.query(
+        f"SELECT last(\"sleepScore\") AS sc "
+        f"FROM \"ReadinessInputs\" "
+        f"WHERE time >= '{(day - timedelta(days=2)).isoformat()}' AND time < '{end_dt.isoformat()}' "
+        "GROUP BY time(1d)"
+    ).get_points())
+    sleep_hist = round(mean([p["sc"] for p in pts if p.get("sc") is not None]), 1) if pts else None
+
+    # 5) Compute today’s acuteLoad, ATL & CTL
+    trimp_today = get_training_load(garmin_obj, date_str, start_dt, end_dt) or 0.0
+    atl, ctl    = compute_ctl_atl(date_str, influxdbclient, device)
+
+    # 6) Build exactly one point (fields default to 0 or None)
+    point = {
         "measurement": "ReadinessInputs",
-        "time": f"{date_str}T07:00:00Z",  # or wellnessStartTimeGmt
-        "tags": {"Device": GARMIN_DEVICENAME},
+        "time": f"{date_str}T07:00:00Z",
+        "tags": {"Device": device},
         "fields": {
-            "bodyBatteryAtWake": bb_wake,
-            "avgOvernightHrv": stats.get("avgOvernightHrv"),
-            "sleepScore": sleep,
-            "acuteLoad": trimp_today,
-            "CTL": ctl,
-            "ATL": atl,
-            "stressPct": stress_pct
+            "acuteLoad":         float(trimp_today),
+            "ATL":               round(atl, 1),
+            "CTL":               round(ctl, 1),
+            "avgOvernightHrv":   avg_hrv,
+            "sleepScore":        sleep_score,
+            "sleepHist":         sleep_hist,
+            "stressPct":         float(stress_pct),
+            "bodyBatteryAtWake": bb_wake
         }
-    })
+    }
 
-    return points
-
-
+    return [point]
