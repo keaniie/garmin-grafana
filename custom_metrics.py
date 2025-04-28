@@ -602,4 +602,73 @@ def get_lactate_threshold(garmin_obj, date_str, garmin_device_name):
     return points
 
 
+# %%
+def get_training_load_focus(garmin_obj, date_str, garmin_device_name):
+    pts = []
+    ts = garmin_obj.get_training_status(date_str)
+    lf = ts.get('loadFocus', {})
+    if lf:
+        fields = {
+            'lowAerobic': lf.get('lowAerobic'),
+            'highAerobic': lf.get('highAerobic'),
+            'anaerobic':  lf.get('anaerobic'),
+            'targetLow':  lf.get('targetLow'),
+            'targetHigh': lf.get('targetHigh')
+        }
+        pts.append({
+            "measurement": "TrainingLoadFocus",
+            "time": datetime.strptime(date_str, "%Y-%m-%d")
+            .replace(hour=12, tzinfo=pytz.UTC)
+            .isoformat(),
+            "tags": {"Device": garmin_device_name},
+            "fields": fields
+        })
+    return pts
+
+
+# %%
+def get_readiness_inputs(garmin_obj, date_str):
+    """
+    Fetch all raw inputs for Training Readiness:
+      - bodyBatteryAtWake
+      - avgOvernightHrv
+      - sleepScore
+      - acuteLoad (today’s TRIMP)
+      - ATL, CTL
+      - stressPct
+    Returns a list of InfluxDB points.
+    """
+    points = []
+
+    # 1) Fetch daily stats
+    stats = garmin_obj.get_stats(date_str)
+    bb_wake = stats.get('bodyBatteryAtWakeTime') or stats.get('bodyBatteryAtWake')
+    sleep = stats.get('overallSleepScore')
+    hr_stats = garmin_obj.get_stats(date_str)  # reuse if needed
+
+    # 2) Fetch TRIMP and load history (via your existing functions)
+    trimp_today = get_training_load(garmin_obj, date_str, ...)  # adapt arguments
+    ctl, atl = compute_ctl_atl(date_str)  # you can wrap your load-focus logic
+
+    # 3) Fetch stress percentage
+    stress_pct = stats.get('stressPercentage')
+
+    # 4) Assemble point
+    points.append({
+        "measurement": "ReadinessInputs",
+        "time": f"{date_str}T07:00:00Z",  # or wellnessStartTimeGmt
+        "tags": {"Device": GARMIN_DEVICENAME},
+        "fields": {
+            "bodyBatteryAtWake": bb_wake,
+            "avgOvernightHrv": stats.get("avgOvernightHrv"),
+            "sleepScore": sleep,
+            "acuteLoad": trimp_today,
+            "CTL": ctl,
+            "ATL": atl,
+            "stressPct": stress_pct
+        }
+    })
+
+    return points
+
 

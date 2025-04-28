@@ -6,7 +6,6 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
-from statistics import mean, median
 
 from custom_metrics import (
     get_training_load,
@@ -17,6 +16,8 @@ from custom_metrics import (
     get_lactate_threshold,
     get_acwr,
     get_hrv_baseline,
+    get_training_load_focus,
+    get_readiness_inputs
 )
 
 import dotenv
@@ -860,7 +861,9 @@ def daily_fetch_write(date_str):
     write_points_to_influxdb(get_lactate_threshold(garmin_obj, date_str, GARMIN_DEVICENAME))
     write_points_to_influxdb(get_acwr(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
     write_points_to_influxdb(get_hrv_baseline(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
-    
+    write_points_to_influxdb(get_training_load_focus(garmin_obj, date_str, GARMIN_DEVICENAME))
+    write_points_to_influxdb(get_readiness_inputs(garmin_obj, date_str))
+
     ####
     if FETCH_ADVANCED_TRAINING_DATA:  # Contribution from PR #17 by @arturgoms
         write_points_to_influxdb(get_training_readiness_new(date_str))
