@@ -667,10 +667,6 @@ def get_readiness_inputs(garmin_obj, date_str, influxdbclient, device):
     filling missing metrics with zeros or None so last(...) and fill(previous)
     in your Grafana query will work correctly.
     """
-    from datetime import datetime, timedelta
-    import pytz
-    from statistics import mean
-
     # 1) Build day boundaries
     day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
     start_dt = day
@@ -702,21 +698,25 @@ def get_readiness_inputs(garmin_obj, date_str, influxdbclient, device):
     trimp_today = get_training_load(garmin_obj, date_str, start_dt, end_dt) or 0.0
     atl, ctl    = compute_ctl_atl(date_str, influxdbclient, device)
 
-    # 6) Build exactly one point (fields default to 0 or None)
-    point = {
+    points = [{
+        "measurement": "TrainingLoad",
+        "time": f"{date_str}T00:00:00Z",  # midnight UTC
+        "tags": {"Device": device},
+        "fields": {"banisterTRIMP": round(trimp_today, 2)}
+    }, {
         "measurement": "ReadinessInputs",
-        "time": f"{date_str}T07:00:00Z",
+        "time": f"{date_str}T07:00:00Z",  # whatever time you prefer
         "tags": {"Device": device},
         "fields": {
-            "acuteLoad":         float(trimp_today),
-            "ATL":               round(atl, 1),
-            "CTL":               round(ctl, 1),
-            "avgOvernightHrv":   avg_hrv,
-            "sleepScore":        sleep_score,
-            "sleepHist":         sleep_hist,
-            "stressPct":         float(stress_pct),
+            "acuteLoad": float(trimp_today),
+            "ATL": round(atl, 1),
+            "CTL": round(ctl, 1),
+            "avgOvernightHrv": avg_hrv,
+            "sleepScore": sleep_score,
+            "sleepHist": sleep_hist,
+            "stressPct": float(stress_pct),
             "bodyBatteryAtWake": bb_wake
         }
-    }
+    }]
 
-    return [point]
+    return points
