@@ -506,6 +506,10 @@ def get_acwr(garmin_obj, date_str, influxdbclient, garmin_device_name):
     if len(wk7) < 1 or len(wk28) < 1:
         return []
 
+    if mean(wk28) == 0:
+        logging.warning("Chronic (28-day) average is zero; cannot compute ACWR → returning 0")
+        return []
+
     acwr = mean(wk7) / mean(wk28)
 
     # Build point at midnight UTC

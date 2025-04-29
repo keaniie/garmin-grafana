@@ -6,14 +6,21 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    image: thisisarpanghosh/garmin-fetch-data:latest
+#    image: thisisarpanghosh/garmin-fetch-data:latest
     container_name: garmin-fetch-data
     # user: root # Runs the container as root user, uncomment this line if you are getting permission issues which can't be resolved otherwise. For this, you also need to change the below volume mount from './garminconnect-tokens:/home/appuser/.garminconnect' to './garminconnect-tokens:/root/.garminconnect' to ensure the token files persist during container rebuilding.
     depends_on:
       - influxdb
     volumes:
       - ~/.garminconnect:/home/appuser/.garminconnect
-      - ./:/app
+      - ./garmin_fetch.py:/home/appuser/src/garmin_fetch.py
+      - ./custom_metrics.py:/home/appuser/src/custom_metrics.py
+      - ./pyproject.toml:/home/appuser/src/pyproject.toml
+      - ./uv.lock:/home/appuser/src/uv.lock
+
+    working_dir: /app
+    # tell `uv run` to launch the script from the bind-mount
+    command: ["uv", "run", "/home/appuser/src/garmin_fetch.py"]
 
     environment:
       - INFLUXDB_HOST=influxdb
