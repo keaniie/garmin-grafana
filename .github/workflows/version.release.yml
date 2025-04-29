@@ -1,20 +1,13 @@
-name: Build and Push Multi-Architecture Docker Image (Latest Build)
+name: Build and Push Docker Image on Version Release
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'garmin_fetch.py'
-      - 'compose-example.yml'
-      - 'pyproject.toml'
-      - 'Dockerfile'
-      - '.python-version'
-      - 'uv.lock'
+    tags:
+      - 'v*'  # matches version release only
 
 env:
   IMAGE_NAME: garmin-fetch-data
-  IMAGE_TAG: latest
+  IMAGE_TAG: ${{ github.ref_name }}
   IMAGE_REPO: thisisarpanghosh
 
 jobs:
@@ -37,7 +30,7 @@ jobs:
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ghcr.io 
           username: ${{ github.repository_owner}}
           password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -56,5 +49,3 @@ jobs:
           tags: |
             ${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-
-        
