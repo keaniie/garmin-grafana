@@ -6,10 +6,32 @@
 
 # Garmin Grafana
 
-A docker container to fetch data from Garmin servers and store the data in a local influxdb database for appealing visualization with Garfana.
+A docker container to fetch data from Garmin servers and store the data in a local influxdb database for appealing visualization with Grafana.
 
 > [!TIP]
 > If you are a **Fitbit user**, please check out the [sister project](https://github.com/arpanghosh8453/fitbit-grafana) made for Fitbit
+
+## Table of contents
+
+- [Dashboard Example](#dashboard-example)
+- [Features](#features)
+- [Why use this project?](#why-use-this-project)
+- **Installation**
+  - EASY : [Automated installation](#automatic-install-with-helper-script-recommended-for-less-techy-people) with helper script
+  - ADVANCED : [Manual step by step installation](#manual-install-with-docker-recommended-if-you-understand-linux-concepts) guide
+- **How to**
+  - How to [pull historic (old) data](#historical-data-fetching-bulk-update) (bulk update)?
+  - How to [update to newer versions](#update-to-new-versions) of this project?
+  - How to [export data as CSV files](#export-data-to-csv-files) for AI insights?
+  - How to [backup the InfluxDB Database?](#backup-influxdb-database)
+  - [Troubleshooting](#troubleshooting) Guide
+  - [Need Help?](#need-help)
+- Project suppliment
+  - [Credits](#credits)
+  - [Dependencies](#dependencies)
+  - [Limitations](#limitations)
+- [Support this project](#love-this-project)
+- [Star History](#star-history)
 
 ## Dashboard Example
 
@@ -62,16 +84,17 @@ If you are on `Windows` you should consider using [WSL](https://learn.microsoft.
 #### Detailed steps for Windows users are as follows:
 
 - [Install docker desktop](https://docs.docker.com/get-started/introduction/get-docker-desktop/)
-- Install WSL and Ubuntu from the Micorosft store
-- Start -> Run -> type `WSL.exe`, Follow the prompts to create your Linux sudo (admin) user and password
-- Open docker desktop to agree to the EULA
-- Reboot your machine
+- Install `WSL` and `Ubuntu` from the Micorosft store
+- Start -> Run -> type `WSL.exe`, Follow the prompts to create your Linux sudo (admin) user and password. This password will be required for later steps. 
+- Open docker desktop and agree to the EULA
+- Reboot your machine (important)
 - Once back up, WSL and Docker should be installed and linked together.
-- Start -> Run -> type `WSL.exe`,then run the below bash command
+- Start -> Run -> type `WSL.exe`, then run the below bash command in the terminal window.  
 
 For Linux or MacOS, simply run the following bash command from your linux command line (terminal).
 
-You may need to run the script with `sudo` (linux administrator) privilages or it may fail due to some permission error.
+> [!NOTE]
+> If you get the error that `git : command not found` then you need to install `git` with the command `sudo apt install git` for Ubuntu/Debian/WSL(windows) based systems. For Mac, you need to use `brew install git`. If you are on a non-debian linux distribution, please use your OS specific package manager replacing `apt`.
 
 ```bash
 cd ~ && git clone https://github.com/arpanghosh8453/garmin-grafana.git garmin-grafana && cd garmin-grafana && sudo bash ./easy-install.sh
@@ -80,13 +103,13 @@ cd ~ && git clone https://github.com/arpanghosh8453/garmin-grafana.git garmin-gr
 Enter the Garmin Connect credentials when prompted and you should be all up and running (your will be prompted for 2FA code as well if you have that set up). Once the data keeps coming, you can check out the `http://localhost:3000` to reach Grafana (by default), do the initial setup with the default username `admin` and password `admin`. Check out the dashboards link on the left sidebar. you should have a dashboard auto-configured as `Garmin-Stats` under the dashboards section. There you should see the data added. It will **keep updating automatically** as soon as new data syncs with your Garmin Connect account.
 
 > [!NOTE]
-> When you run this for the first time, it will only automatically fetch the data for **last 7 days** only and keep pulling new data that syncs with Garmin Connect moving forward. if you want to sync your older data, that is super easy to do. You just need the run the following command in the terminal replacing the YYYY-MM-DD with appropriate start and end dates (MANUAL_START_DATE value must be older than MANUAL_END_DATE value) 
+> When you run this for the first time, it will only automatically fetch the data for **last 7 days** only and keep pulling new data that syncs with Garmin Connect moving forward. if you want to sync your older data, that is super easy to do. You just need the run the following command in the terminal (`WSL` for windows) replacing the YYYY-MM-DD with appropriate start and end dates (MANUAL_START_DATE value must be older than MANUAL_END_DATE value) 
 >
 > ```bash
-> docker compose run --rm -e MANUAL_START_DATE=YYYY-MM-DD -e MANUAL_END_DATE=YYYY-MM-DD garmin-fetch-data
+> cd ~/garmin-grafana && docker compose run --rm -e MANUAL_START_DATE=YYYY-MM-DD -e MANUAL_END_DATE=YYYY-MM-DD garmin-fetch-data
 > ```
 
-That should be everything you need for now! 
+That should be everything you need for now! The script will be running in the background as long as your machine is up. After a restart, make sure to open docker desktop if you are on windows (if it does not start automatically) so that the containers get booted up as well. For Linux, everything should restart reliably after a reboot. If you are having issues, make sure the docker daemon is running and check the container status with `docker ps` command
 
 ## Manual Install with Docker (Recommended if you understand linux concepts)
 
@@ -97,7 +120,10 @@ That should be everything you need for now!
 
 2. Create an empty `compose.yml` file inside the current `garmin-grafana` folder with the content of the given [compose-example.yml](./compose-example.yml) or simply rename the present `compose-example.yml` file to `compose.yml` with `mv compose-example.yml compose.yml` ( Change the environment variables inside according to instructions )
 
-3. You can use two additional environment variables `GARMINCONNECT_EMAIL` and `GARMINCONNECT_BASE64_PASSWORD` to add the login information directly. otherwise you will need to enter them in the initial setup phase when prompted. If you are not using these environment variables to pass your garmin Connect login informations, you must remove them altogether (remove the full lines including the variable names or comment out with a `#` in front of the variable names - as done in the example be default) from the compose file - leaving them to placeholder values or empty values might lead to invalid login attempt and possibily `401 Client Error`. Please note that here the password must be encoded with [Base64](http://base64encode.org/) when using the `GARMINCONNECT_BASE64_PASSWORD` ENV variable. This is to ensure your Garmin Connect password is not in plaintext in the compose file. The script will decode it and use it when required. If you set these two ENV variables and do not have two factor authentication (via SMS or email), you can directly jump to `step 5`. If you are in mainland China and use Garmin-cn account you need to set `GARMINCONNECT_IS_CN=True`
+> [!TIP]
+> The Docker image is also available as `ghcr.io/arpanghosh8453/garmin-fetch-data:latest` alongside `thisisarpanghosh/garmin-fetch-data:latest`.
+
+3. You can use two additional environment variables `GARMINCONNECT_EMAIL` and `GARMINCONNECT_BASE64_PASSWORD` to add the login information directly. otherwise you will need to enter them in the initial setup phase when prompted. If you are not using these environment variables to pass your garmin Connect login informations, you must remove them altogether (remove the full lines including the variable names or comment out with a `#` in front of the variable names - as done in the example be default) from the compose file - leaving them to placeholder values or empty values might lead to invalid login attempt and possibily `401 Client Error`. Please note that here the password must be encoded with [Base64](http://base64encode.org/) when using the `GARMINCONNECT_BASE64_PASSWORD` ENV variable. This is to ensure your Garmin Connect password is not in plaintext in the compose file. The script will decode it and use it when required. If you set these two ENV variables and do not have two factor authentication (via SMS or email), you can directly jump to `step 5`. If you are in mainland China and use Garmin-cn account you need to set `GARMINCONNECT_IS_CN=True`. You can also select what data you want to fetch with the `FETCH_SELECTION` variable in the compose file. 
 
 > [!NOTE]
 > If you are planning to use Influxdb V3, you need to enter the admin access token in `INFLUXDB_V3_ACCESS_TOKEN`. To generate the admin token you should run `docker exec influxdb influxdb3 create token --admin` command. This will give you the admin token which you must update to `INFLUXDB_V3_ACCESS_TOKEN` ENV variable. You can do this only once and the token can't be viewed or retrieved ever again (influxdb only stores a hash of it in the database for comparison). So please store this token carefully. 
@@ -130,115 +156,24 @@ If you have come this far, everything should be working. If not, please check th
 
 This project is made for InfluxDB 1.11, as Flux queries on influxDB 2.x can be problematic to use with Grafana at times. In fact, InfluxQL is being reintroduced in InfluxDB 3.0, reflecting user feedback. Grafana also has better compatibility/stability with InfluxQL from InfluxDB 1.11. Moreover, there are statistical evidence that Influxdb 1.11 queries run faster compared to influxdb 2.x. Since InfluxDB 2.x offers no clear benefits for this project, there are no plans for a migration.
 
-Support of current [Influxdb 3](https://docs.influxdata.com/influxdb3/core/) OSS is also available with this project [ `Experimental` ]
-
 > [!IMPORTANT]
-> Please note that InfluxDB 3.x OSS limits the query time limit to 72 hours. This can be extended more by setting `INFLUXDB3_QUERY_FILE_LIMIT` to a very high value with a potential risk of crashing the container (OOM Error). As we are interested in visualization long term data trends, this limit defeats the purpose. Hence, we strongly recommend using InfluxDB 1.11.x (default settings) to our users as long as it's not discontinued from production. 
+> If you have an existing **InfluxDB v2.x** database and want to integrate that with this project, you can follow [this guide](https://github.com/arpanghosh8453/garmin-grafana/discussions/63#discussioncomment-13025100), although we officially do not support InfluxDB v2.x with this project. We have direct support for **InfluxDB v3.x**, but we do not actively encourage people to use that as it comes with paywalled features (InfluxDB v3.x OSS limits the data query time to 72 hours - long term queries are only available in enterprise and InfluxData cloud hosted instances) that are essential for long term data visualization. As we are interested in visualization of long term data trends, this limit defeats the purpose. Hence, we strongly recommend using InfluxDB 1.11.x (default settings) to our users as long as it's not discontinued from production. 
 
-Example `compose.yml` file contents is given here for a quick start.
-
-> [!TIP]
-> The Docker image is also available as `ghcr.io/arpanghosh8453/garmin-fetch-data:latest` alongside `thisisarpanghosh/garmin-fetch-data:latest`.
-
-```yaml
-services:
-  garmin-fetch-data:
-    restart: unless-stopped
-    image: thisisarpanghosh/garmin-fetch-data:latest
-    container_name: garmin-fetch-data
-    # user: root # Runs the container as root user, uncomment this line if you are getting permission issues which can't be resolved otherwise For this, you also need to change the below volume mount from './garminconnect-tokens:/home/appuser/.garminconnect' to './garminconnect-tokens:/root/.garminconnect' to ensure the token files persist during container rebuilding. 
-    depends_on:
-      - influxdb
-    volumes:
-      - ./garminconnect-tokens:/home/appuser/.garminconnect # (persistent tokens storage - garminconnect-tokens folder must be owned by 1000:1000) - should be './garminconnect-tokens:/root/.garminconnect' instead if you are using user: root
-    environment:
-      - INFLUXDB_HOST=influxdb
-      - INFLUXDB_PORT=8086 # Influxdb V3 maps to 8181 instead of 8086 of V1
-      - INFLUXDB_USERNAME=influxdb_user # user should have read/write access to INFLUXDB_DATABASE (Required for influxdb 1.x, ignore for influxdb 3.x - set the 3.x specific variables)
-      - INFLUXDB_PASSWORD=influxdb_secret_password # (Required for influxdb 1.x, ignore for influxdb 3.x - set the 3.x specific variables)
-      - INFLUXDB_DATABASE=GarminStats
-      - GARMINCONNECT_IS_CN=False # Set this to True if you are in mainland China or use Garmin-cn (Default False)
-      #####################################################################################
-      # - GARMINCONNECT_EMAIL=your_garminconnect_email # optional, read the setup docs. (remove or comment out this line altogether if not used)
-      # - GARMINCONNECT_BASE64_PASSWORD=your_base64_encoded_garminconnect_password # optional, must be Base64 encoded, read setup docs. (remove or comment out this line altogether if not used)
-      #####################################################################################
-      # The following ENV variables are required only if you are using influxdb V3 (You won't have to set the above )
-      #####################################################################################
-      # - INFLUXDB_VERSION=1 # Required for influxdb V3, Default is 1, must be overridden with 3 if using Influxdb V3
-      # - INFLUXDB_V3_ACCESS_TOKEN=your_influxdb_admin_access_token # Required for influxdb V3 (ignored for V1), Set this to your admin access token (or a token that has database R/W access) - You can generate this by following step 3 notes in the README instructions
-      #####################################################################################
-      # The following ENV variables will override some default settings. 
-      # Please read the README guide before using them as they may change how the script behaves
-      #####################################################################################
-      # - LOG_LEVEL=INFO # change to DEBUG to get DEBUG logs
-      # - UPDATE_INTERVAL_SECONDS=300 # Default update check interval is set to 5 minutes
-      # - FETCH_ADVANCED_TRAINING_DATA=False # This enables fetching additional data : Training Readiness, Hill score and Endurance score as available when set to True
-      # - KEEP_FIT_FILES=False # Stores the FIT files (downloads and saves them) when set to True - read docs for more details
-      # - ALWAYS_PROCESS_FIT_FILES=False # Enables processing FIT files even if GPS data is not present in it when set to True, default False
-      # - USER_TIMEZONE="" # Can hardcode user's timezone, fetches timezone automatically and dynamically on each run if set to empty (default) - Read docs
-      # - INFLUXDB_ENDPOINT_IS_HTTP=True # Set this to False if you are using HTTPS for your influxdb connection (over the internet)
-      # - FORCE_REPROCESS_ACTIVITIES=True # Enables re-processing of FIT files on iterative updates when set to True (default), setting to False may save processing time but known for skipping activities
-
-  influxdb:
-    restart: unless-stopped
-    container_name: influxdb
-    hostname: influxdb
-    environment:
-      - INFLUXDB_DB=GarminStats
-      - INFLUXDB_USER=influxdb_user
-      - INFLUXDB_USER_PASSWORD=influxdb_secret_password
-      - INFLUXDB_DATA_INDEX_VERSION=tsi1
-      #############################################################
-      # The following ENV variables are applicable for InfluxDB V3
-      #############################################################
-      # - INFLUXDB3_MAX_HTTP_REQUEST_SIZE=10485760
-      # - INFLUXDB3_NODE_IDENTIFIER_PREFIX=Influxdb-node1
-      # - INFLUXDB3_BUCKET=GarminStats
-      # - INFLUXDB3_OBJECT_STORE=file
-      # - INFLUXDB3_DB_DIR=/data
-      # - INFLUXDB3_QUERY_FILE_LIMIT=5000 # this set to be a very high value if you want to view long term data
-    expose:
-      - '8086' # Influxdb V3 should expose "8181" (Change INFLUXDB_PORT on garmin-fetch-data appropriately for InfluxDB V3)
-    volumes:
-      - influxdb_data:/var/lib/influxdb # InfluxDB V3 bind mount should be set like - influxdb_data:/data if you set INFLUXDB3_DB_DIR=/data (instead of /var/lib/influxdb)
-    image: 'influxdb:1.11' # You must change this to 'quay.io/influxdb/influxdb3-core:latest' for influxdb V3
-
-  grafana:
-    restart: unless-stopped
-    container_name: grafana
-    hostname: grafana
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_PLUGINS_PREINSTALL=marcusolsson-hourly-heatmap-panel
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./Grafana_Datasource:/etc/grafana/provisioning/datasources # (optional) Self provisioning influxdb datasource
-      - ./Grafana_Dashboard:/etc/grafana/provisioning/dashboards # (optional) self provisioning grafana dashboard
-    ports:
-      - '3000:3000'
-    image: 'grafana/grafana:latest'
-
-volumes:
-  influxdb_data:
-  grafana_data:
-
-```
 ### Additional configuration and environment variables
 
 ✅ The Above compose file creates an open read/write access influxdb database with no authentication. Unless you expose this database to the open internet directly, this poses no threat. If you share your local network, you may enable authentication and grant appropriate read/write access to the influxdb_user on the GarminStats database manually if you want with `INFLUXDB_ADMIN_ENABLED`, `INFLUXDB_ADMIN_USER`, and `INFLUXDB_ADMIN_PASSWORD` ENV variables during the setup by following the [influxdb guide](https://github.com/docker-library/docs/blob/master/influxdb/README.md) but this won't be covered here for the sake of simplicity.
 
-✅ You can also enable additional advanced training data fetching with `FETCH_ADVANCED_TRAINING_DATA=True` flag in the compose file. This will fetch and store data such as training readiness, hill score, VO2 max, and Race prediction if you have them available on Garmin connect. The implementations of this should work fine in theory but not thoroughly tested. This is currently an experimental feature. There is no panel showing these data on the provided grafana dashboard. You must create your own to visualize these on Grafana.
+✅ You can also enable additional advanced training data fetching (such as Hill Score, Training Readines, Endurance Score Blood Pressure, Hydration etc.) with `FETCH_SELECTION` ENV variable in the compose file. The the `compose-example.yml` file to know what additional options are available. There is no panel showing these additional data on the provided grafana dashboard. You must create your own to visualize these on Grafana.
 
 ✅ By default, the pulled FIT files are not stored as files to save storage space during import (an in-memory IO buffer is used instead). If you want to keep the FIT files downloaded during the import for future use in `Strava` or any other application where FIT files are supported for import, you can turn on `KEEP_FIT_FILES=True` under `garmin-fetch-data` environment variables in the compose file. To access the files from the host machine, you should create a folder named `fit_filestore` with `mkdir fit_filestore` inside the `garmin-fetch-data` folder (where your compose file is currently located) and change the ownership with `chown 1000:1000 fit_filestore`, and then must setup a volume bind mount like this `./fit_filestore:/home/appuser/fit_filestore` under the volumes section of `garmin-fetch-data`. This would map the container's internal `/home/appuser/fit_filestore` folder to the `fit_filestore` folder you created. You will see the FIT files for your activities appear inside this `fit_filestore` folder once the script starts running.
 
 ✅ By default indoor activities FIT files lacking GPS data are not processed (Activity summaries are processed for all activities, just not the detailed intra-activity HR, Pace etc. which are included only inside the FIT files and require additional processing power) to save resources and processing time per fetched activity. If you want to process all activities regardless of GPS data availabliliy associated with the activity, you can set `ALWAYS_PROCESS_FIT_FILES=True` in the environment variables section of the `garmin-fetch-data` container as that will ensure all FIT files are processed irrespective of GPS data availability with the activities.  
 
-✅ If you are having missing data on previous days till midnight (which are available on Garmin Connect but missing on dashboard) or sync issues when using the automatic periodic fetching, consider updating the container to recent version and use `USER_TIMEZONE` environment variable under the `garmin-fetch-data` service. This variable is optional and the script tries to determine the timezone and fetch the UTC offset automatically if this variable is set as empty. If you see the automatic identification is not working for you, this variable can be used to override that behaviour and ensures the script is using the hardcoded timezone for all data fetching related activities. The previous gaps won't be filled (you need to fetch them using historic bulk update method), but moving forward, the script will keep everything in sync. 
+✅ If you are having missing data on previous days till midnight (which are available on Garmin Connect but missing on dashboard) or sync issues when using the automatic periodic fetching, consider updating the container to recent version and use `USER_TIMEZONE` environment variable under the `garmin-fetch-data` service. The value must be a valid tz identifier like `Europe/Budapest`. This variable is optional and the script tries to determine the timezone and fetch the UTC offset automatically if this variable is set as empty. If you see the automatic identification is not working for you, this variable can be used to override that behaviour and ensures the script is using the hardcoded timezone for all data fetching related activities. The previous gaps won't be filled (you need to fetch them using historic bulk update method), but moving forward, the script will keep everything in sync. 
 
 ✅ Want this dashboard in **Imperial units** instead of **metric units**? I can't maintain two separate dashboards at the same time but here is an [excellent step-by-step guide](https://github.com/arpanghosh8453/garmin-grafana/issues/27#issuecomment-2817081738) on how you can do it yourself on your dashboard!
 
-## Collecting periodic watch battery levels
+### Collecting periodic watch battery levels
 
 Unfortunately, Garmin Connect does not sync the device battery level (possibly due to infrequent passive syncing intervals). Hence, it's not possible to get the watch's battery data directly using this setup. However, I have found an alternative, which requires a lot of additional setup (out of the scope for this project - but I will give a brief walkthrough). 
 
@@ -262,12 +197,23 @@ influxdb:
   tags:
     source: hass
 ```
-There is a Grafana panel in the dashboard (given with this project) which displays this data when available. If you do not have this setup, you should remove that panel from the dashboard, as battery data collection is not possible from the watch otherwise.  
+There is a Grafana panel in the dashboard (given with this project) which displays this data when available. If you do not have this setup, you should remove that panel from the dashboard, as battery data collection is not possible from the watch otherwise. 
+
+## Update to new versions
+
+Updating with docker is super simple. Just go to the folder where the `compose.yml` is and run `docker compose pull` and then `docker compose down && docker compose up -d`. Please verify if everything is running correctly by checking the logs with `docker compose logs --follow`
+
+> [!CAUTION]
+> If you run `docker compose down -v`, that (using the `-v` flag) will purge the persistant docker volumes for the influxdb (if you are using docker volumes - default setup) which will wipe out all the data and databases stored in the influxdb container. Please be careful about this action but it can be useful if you want to start fresh wiping out the old database and container. This action cannot be undone.  
 
 ## Historical data fetching (bulk update)
 
 > [!TIP]
 > Please note that this process is intentionally rate limited with a 5 second wait period between each day update to ensure the Garmin servers are not overloaded with requests when using bulk update. You can update the value with `RATE_LIMIT_CALLS_SECONDS` ENV variable in the `garmin-fetch-data` container, but lowering it is not recommended, 
+
+> [!NOTE]
+> Please note that this process, if repeated multiple times, **DOES NOT create any duplicate data** in the database if used with InfluxDB. InfluxDB being a time series database, uses timestamp and tags combined to create a hash that is used as primary key. So writing the same values with same timestamp and tags effectively overwrites the previous field values. 
+
 
 #### Procedure
 
@@ -277,20 +223,34 @@ There is a Grafana panel in the dashboard (given with this project) which displa
 
 3. Run command `docker compose run --rm -e MANUAL_START_DATE=YYYY-MM-DD -e MANUAL_END_DATE=YYYY-MM-DD garmin-fetch-data` to update the data between the two dates. You need to replace the `YYYY-MM-DD` with the actual dates in that format, for example `docker compose run --rm -e MANUAL_START_DATE=2025-04-12 -e MANUAL_END_DATE=2025-04-14 garmin-fetch-data`. The `MANUAL_END_DATE` variable is optional, if not provided, the script assumes it to be the current date. `MANUAL_END_DATE` must be in future to the `MANUAL_START_DATE` variable passed, and in case they are same, data is still pulled for that specific date. 
 
-4. Please note that the bulk data fetching is done in **reverse chronological order**. So you will have recent data first and it will keep going back until it hits `MANUAL_START_DATE`. You can have this running in background. If this terminates after some time unexpectedly, you can check back the last successful update date from the container stdout logs and use that as the `MANUAL_END_DATE` when running bulk update again as it's done in reverse chronological order.
+> [!TIP]
+> If you are running this more than once to update the old data after container update, and want to only fetch specific data points instead of everything for the bulk fetch (to save time and resources), you can set `FETCH_SELECTION` to the measurements you want to fetch again. You can override the value of compose like this `docker compose run --rm -e MANUAL_START_DATE=YYYY-MM-DD -e MANUAL_END_DATE=YYYY-MM-DD -e FETCH_SELECTION=activity,sleep garmin-fetch-data` if you just want to update/re-fetch the past activities and sleep data and nothing else. Look at the compose file comments to know what values are available for this variable. 
 
-4. After successful bulk fetching, you will see a `Bulk update success` message and the container will exit and remove itself automatically. 
+1. Please note that the bulk data fetching is done in **reverse chronological order**. So you will have recent data first and it will keep going back until it hits `MANUAL_START_DATE`. You can have this running in background. If this terminates after some time unexpectedly, you can check back the last successful update date from the container stdout logs and use that as the `MANUAL_END_DATE` when running bulk update again as it's done in reverse chronological order.
 
-5. Now you can run the regular periodic update with `docker compose up -d`
+2. After successful bulk fetching, you will see a `Bulk update success` message and the container will exit and remove itself automatically. 
 
-## Update to new versions
+3. Now you can run the regular periodic update with `docker compose up -d`
 
-Updating with docker is super simple. Just go to the folder where the `compose.yml` is and run `docker compose pull` and then `docker compose down && docker compose up -d`. Please verify if everything is running correctly by checking the logs with `docker compose logs --follow`
+## Export Data to CSV files
 
-> [!CAUTION]
-> If you run `docker compose down -v`, that (using the `-v` flag) will purge the persistant docker volumes for the influxdb (if you are using docker volumes - default setup) which will wipe out all the data and databases stored in the influxdb container. Please be careful about this action but it can be useful if you want to start fresh wiping out the old database and container. This action cannot be undone. 
+This project provides additional utilities to export the data as CSV for external analysis or AI integration. After the export, you can use the CSV files to feed into ChatGPT (If you are not in EU, your data will be used for training) or any locally hosted LLM chat interface with [Openweb-UI](https://github.com/open-webui/open-webui) to get insights from your long term health data. If you turn on chat history, you may be able to get more insightful recommendations over time. 
 
-## Backup Database
+There are two ways to export the data into CSV files. 
+
+1. Use the native CSV export functionality of Grafana, where you can export the data shown on any Grafana panel using [this guide](https://grafana.com/blog/2024/05/30/how-to-export-any-grafana-visualization-to-a-csv-file-microsoft-excel-or-google-sheets/) as CSV. 
+
+2. If the above method is tidious and you want to grab all measurements in detail as CSV files with one command directly from the local InfluxDB database, a convinient exporter script is provided with this project (included inside the docker container). 
+
+   2.1 Simply run the following docker command from your terminal `docker exec garmin-fetch-data uv run /app/garmin_grafana/influxdb_exporter.py` to export the last 30 days data. The script takes additional arguments such as `last-n-days` or `start-date` and `end-date` if you want to export data for last n days or for a specific date range. You should run the command like `docker exec garmin-fetch-data uv run /app/garmin_grafana/influxdb_exporter.py --last-n-days=7` or `docker exec garmin-fetch-data uv run /app/garmin_grafana/influxdb_exporter.py --start-date=2025-01-01 --end-date=2025-03-01`
+
+   2.2 When the export is finished, you will see a output file path in the format ` Exported N measurement CSVs into /tmp/GarminStats_Export_XYZ.zip`. The zip filename will vary based on when you run the command and how many days you ran. Take note of the full export path name. 
+
+   2.3 Now the exported zip is saved inside the container, we need to copy it to our host machine. To do this, run `docker cp garmin-fetch-data:/tmp/GarminStats_Export_XYZ.zip ./` and replace the `/tmp/GarminStats_Export_XYZ.zip` part with your zip filename from the output of the previous command.Thos command will place the zip file in your current working directory - you can replace the `./` ending of the command with a local path like `~/garmin-grafana/` if you want to place it somewhere specific. Once the clone is complete, you can remove the export zip from the container by running `docker exec garmin-fetch-data rm /tmp/GarminStats_Export_XYZ.zip` to free up some space (optional)
+
+   2.4 Now unzip the zip file you have and you will see all the measurements are available as separate CSV files. You can run your custom analysis with these or ask LLM for insights by directly feeding the CSV file(s)! 
+
+## Backup InfluxDB Database
 
 Whether you are using a bind mount or a docker volume, creating a restorable archival backup of your valuable health data is always advised. Assuming you named your database as `GarminStats` and influxdb container name is `influxdb`, you can use the following script to create a static archival backup of your data present in the influxdb database at that time point. This restore points can be used to re-create the influxdb database with the archived data without requesting them from Garmin's servers again, which is not only time consuming but also resource intensive. 
 
@@ -301,7 +261,7 @@ BACKUP_DIR="./influxdb_backups/$TIMESTAMP"
 mkdir -p "$BACKUP_DIR"
 docker exec influxdb influxd backup -portable -db GarminStats /tmp/influxdb_backup
 docker cp influxdb:/tmp/influxdb_backup "$BACKUP_DIR"
-docker exec influxdb rm -r /tmp/influxdb_backup"
+docker exec influxdb rm -r "/tmp/influxdb_backup"
 ```
 
 The above bash script would create a folder named `influxdb_backups` inside your current working directory and create a subfolder under it with current date-time. Then it will create the backup for `GarminStats` database and copy the backup files to that location. 

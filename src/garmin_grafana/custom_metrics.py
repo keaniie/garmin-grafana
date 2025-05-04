@@ -8,7 +8,7 @@ import pytz
 
 
 # %%
-def get_training_load(garmin_obj, date_str, start_dt, end_dt):
+def dget_training_load(garmin_obj, date_str, start_dt, end_dt):
     """
     Calculate Banister TRIMP for the activity slice between start_dt and end_dt.
     """
