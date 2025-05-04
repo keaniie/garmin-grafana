@@ -13,8 +13,7 @@ services:
       - influxdb
     volumes:
       - ~/.garminconnect:/home/appuser/.garminconnect
-      - ./garmin_fetch.py:/home/appuser/src/garmin_fetch.py
-      - ./custom_metrics.py:/home/appuser/src/custom_metrics.py
+      - ./src/garmin_grafana:/home/appuser/src
       - ./pyproject.toml:/home/appuser/src/pyproject.toml
       - ./uv.lock:/home/appuser/src/uv.lock
 
