@@ -71,6 +71,9 @@ FETCH_SELECTION = os.getenv("FETCH_SELECTION", "daily_avg,sleep,steps,heartrate,
 KEEP_FIT_FILES = True if os.getenv("KEEP_FIT_FILES") in ['True', 'true', 'TRUE','t', 'T', 'yes', 'Yes', 'YES', '1'] else False # optional
 FIT_FILE_STORAGE_LOCATION = os.getenv("FIT_FILE_STORAGE_LOCATION", os.path.join(os.path.expanduser("~"), "fit_filestore"))
 ALWAYS_PROCESS_FIT_FILES = True if os.getenv("ALWAYS_PROCESS_FIT_FILES") in ['True', 'true', 'TRUE','t', 'T', 'yes', 'Yes', 'YES', '1'] else False # optional, will process all FIT files for all activities including indoor ones lacking GPS data
+REQUEST_INTRADAY_DATA_REFRESH = True if os.getenv("REQUEST_INTRADAY_DATA_REFRESH") in ['True', 'true', 'TRUE','t', 'T', 'yes', 'Yes', 'YES', '1'] else False # optional, This requests data refresh for the intraday data (older than 6 months) - see issue #77. Pauses the script for 24 hours when the daily limit is reached.
+IGNORE_INTRADAY_DATA_REFRESH_DAYS = int(os.getenv("IGNORE_INTRADAY_DATA_REFRESH_DAYS", 30)) # optional, ignores the REQUEST_INTRADAY_DATA_REFRESH for the specified number of days from current date. 
+TAG_MEASUREMENTS_WITH_USER_EMAIL = True if os.getenv("TAG_MEASUREMENTS_WITH_USER_EMAIL") in ['True', 'true', 'TRUE','t', 'T', 'yes', 'Yes', 'YES', '1'] else False # Adds an additional "User_ID" tag in each measurement for multi user database support - see #96
 FORCE_REPROCESS_ACTIVITIES = False if os.getenv("FORCE_REPROCESS_ACTIVITIES") in ['False','false','FALSE','f','F','no','No','NO','0'] else True # optional, will enable re-processing of fit files when set to true, may skip activities if set to false (issue #30)
 USER_TIMEZONE = os.getenv("USER_TIMEZONE", "") # optional, fetches timezone info from last activity automatically if left blank
 PARSED_ACTIVITY_ID_LIST = []
@@ -180,6 +183,9 @@ def garmin_login():
 def write_points_to_influxdb(points):
     try:
         if len(points) != 0:
+            if TAG_MEASUREMENTS_WITH_USER_EMAIL:
+                for item in points:
+                    item['tags'].update({'User_ID': garmin_obj.garth.profile.get('userName','Unknown')})
             if INFLUXDB_VERSION == '1':
                 influxdbclient.write_points(points)
             else:
@@ -313,7 +319,7 @@ def get_sleep_data(date_str):
             "highestRespirationValue": sleep_json.get("highestRespirationValue"),
             "awakeCount": sleep_json.get("awakeCount"),
             "avgSleepStress": sleep_json.get("avgSleepStress"),
-            "sleepScore": sleep_json.get("sleepScores", {}).get("overall", {}).get("value"),
+            "sleepScore": ((sleep_json.get("sleepScores") or {}).get("overall") or {}).get("value"),
             "restlessMomentsCount": all_sleep_data.get("restlessMomentsCount"),
             "avgOvernightHrv": all_sleep_data.get("avgOvernightHrv"),
             "bodyBatteryChange": all_sleep_data.get("bodyBatteryChange"),
@@ -616,7 +622,7 @@ def get_activity_summary(date_str):
         if activity.get('hasPolyline') or ALWAYS_PROCESS_FIT_FILES: # will process FIT files lacking GPS data if ALWAYS_PROCESS_FIT_FILES is set to True
             if not activity.get('hasPolyline'):
                 logging.warning(f"Activity ID {activity.get('activityId')} got no GPS data - yet, activity FIT file data will be processed as ALWAYS_PROCESS_FIT_FILES is on")
-            activity_with_gps_id_dict[activity.get('activityId')] = activity.get('activityType',{}).get('typeKey', "Unknown")
+            activity_with_gps_id_dict[activity.get('activityId')] = (activity.get('activityType') or {}).get('typeKey', "Unknown")
         if "startTimeGMT" in activity: # "startTimeGMT" should be available for all activities (fix #13)
             start = datetime.strptime(activity["startTimeGMT"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
             duration = int(activity.get('elapsedDuration', 0))
@@ -631,13 +637,13 @@ def get_activity_summary(date_str):
                     "Device": GARMIN_DEVICENAME,
                     "Database_Name": INFLUXDB_DATABASE,
                     "ActivityID": activity.get('activityId'),
-                    "ActivitySelector": datetime.strptime(activity["startTimeGMT"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC).strftime('%Y%m%dT%H%M%SUTC-') + activity.get('activityType',{}).get('typeKey', "Unknown")
+                    "ActivitySelector": datetime.strptime(activity["startTimeGMT"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC).strftime('%Y%m%dT%H%M%SUTC-') + (activity.get('activityType') or {}).get('typeKey', "Unknown")
                 },
                 "fields": {
                     "Activity_ID": activity.get('activityId'),
                     'Device_ID': activity.get('deviceId'),
                     'activityName': activity.get('activityName'),
-                    'activityType': activity.get('activityType',{}).get('typeKey',None),
+                    'activityType': (activity.get('activityType') or {}).get('typeKey',None),
                     'distance': activity.get('distance'),
                     'elapsedDuration': activity.get('elapsedDuration'),
                     'movingDuration': activity.get('movingDuration'),
@@ -664,7 +670,7 @@ def get_activity_summary(date_str):
                     "Device": GARMIN_DEVICENAME,
                     "Database_Name": INFLUXDB_DATABASE,
                     "ActivityID": activity.get('activityId'),
-                    "ActivitySelector": datetime.strptime(activity["startTimeGMT"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC).strftime('%Y%m%dT%H%M%SUTC-') + activity.get('activityType',{}).get('typeKey', "Unknown")
+                    "ActivitySelector": datetime.strptime(activity["startTimeGMT"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC).strftime('%Y%m%dT%H%M%SUTC-') + (activity.get('activityType') or {}).get('typeKey', "Unknown")
                 },
                 "fields": {
                     "Activity_ID": activity.get('activityId'),
@@ -891,27 +897,27 @@ def get_training_readiness(date_str):
 # Contribution from PR #17 by @arturgoms 
 def get_hillscore(date_str):
     points_list = []
-    hill_all = garmin_obj.get_hill_score(date_str, date_str)
-    if hill_all:
-        for hill in hill_all.get("hillScoreDTOList",[]):
-            data_fields = {
-                "strengthScore": hill.get("strengthScore"),
-                "enduranceScore": hill.get("enduranceScore"),
-                "hillScoreClassificationId": hill.get("hillScoreClassificationId"),
-                "overallScore": hill.get("overallScore"),
-                "hillScoreFeedbackPhraseId": hill.get("hillScoreFeedbackPhraseId")
-            }
-            if not all(value is None for value in data_fields.values()):
-                points_list.append({
-                    "measurement":  "HillScore",
-                    "time": datetime.strptime(date_str,"%Y-%m-%d").replace(hour=0, tzinfo=pytz.UTC).isoformat(), # Use GMT 00:00 for daily record
-                    "tags": {
-                        "Device": GARMIN_DEVICENAME,
-                        "Database_Name": INFLUXDB_DATABASE
-                    },
-                    "fields": data_fields
-                })
-                logging.info(f"Success : Fetching Hill Score for date {date_str}")
+    hill = garmin_obj.get_hill_score(date_str)
+    if hill:
+        data_fields = {
+            "strengthScore": hill.get("strengthScore"),
+            "enduranceScore": hill.get("enduranceScore"),
+            "hillScoreClassificationId": hill.get("hillScoreClassificationId"),
+            "overallScore": hill.get("overallScore"),
+            "hillScoreFeedbackPhraseId": hill.get("hillScoreFeedbackPhraseId"),
+            "vo2MaxPreciseValue": hill.get("vo2MaxPreciseValue")
+        }
+        if not all(value is None for value in data_fields.values()):
+            points_list.append({
+                "measurement":  "HillScore",
+                "time": datetime.strptime(date_str,"%Y-%m-%d").replace(hour=0, tzinfo=pytz.UTC).isoformat(), # Use GMT 00:00 for daily record
+                "tags": {
+                    "Device": GARMIN_DEVICENAME,
+                    "Database_Name": INFLUXDB_DATABASE
+                },
+                "fields": data_fields
+            })
+            logging.info(f"Success : Fetching Hill Score for date {date_str}")
     return points_list
 
 # Contribution from PR #17 by @arturgoms 
@@ -944,8 +950,9 @@ def get_vo2_max(date_str):
     max_metrics = garmin_obj.get_max_metrics(date_str)
     try:
         if max_metrics:
-            vo2_max_value = max_metrics[0].get("generic", {}).get("vo2MaxPreciseValue")
-            if vo2_max_value:
+            vo2_max_value = (max_metrics[0].get("generic") or {}).get("vo2MaxPreciseValue", None)
+            vo2_max_value_cycling = (max_metrics[0].get("cycling") or {}).get("vo2MaxPreciseValue", None)
+            if vo2_max_value or vo2_max_value_cycling:
                 points_list.append({
                     "measurement":  "VO2_Max",
                     "time": datetime.strptime(date_str,"%Y-%m-%d").replace(hour=0, tzinfo=pytz.UTC).isoformat(), # Use GMT 00:00 for daily record
@@ -953,7 +960,7 @@ def get_vo2_max(date_str):
                         "Device": GARMIN_DEVICENAME,
                         "Database_Name": INFLUXDB_DATABASE
                     },
-                    "fields": {"VO2_max_value" : vo2_max_value}
+                    "fields": {"VO2_max_value" : vo2_max_value, "VO2_max_value_cycling" : vo2_max_value_cycling}
                 })
                 logging.info(f"Success : Fetching VO2-max for date {date_str}")
         return points_list
@@ -962,26 +969,21 @@ def get_vo2_max(date_str):
 
 def get_endurance_score(date_str):
     points_list = []
-    endurance_dict = garmin_obj.get_endurance_score(date_str, date_str)
-    available_dates_dict = endurance_dict.get("groupMap",{})
-    if available_dates_dict:
-        for date_key in available_dates_dict:
-            EnduranceScoreAvg = available_dates_dict[date_key].get("groupAverage", None)
-            EnduranceScoreMax = available_dates_dict[date_key].get("groupMax", None)
-            if EnduranceScoreAvg or EnduranceScoreMax:
-                points_list.append({
-                    "measurement":  "EnduranceScore",
-                    "time": pytz.timezone("UTC").localize(datetime.strptime(date_key,"%Y-%m-%d")).isoformat(), # Use GMT 00:00 is timestamp is not available
-                    "tags": {
-                        "Device": GARMIN_DEVICENAME,
-                        "Database_Name": INFLUXDB_DATABASE
-                    },
-                    "fields": {
-                        "EnduranceScoreAvg": EnduranceScoreAvg,
-                        "EnduranceScoreMax": EnduranceScoreMax
-                        }
-                })
-                logging.info(f"Success : Fetching Endurance Score for date {date_str}")
+    endurance_dict = garmin_obj.get_endurance_score(date_str)
+    if endurance_dict:
+        if endurance_dict.get("overallScore"):
+            points_list.append({
+                "measurement":  "EnduranceScore",
+                "time": pytz.timezone("UTC").localize(datetime.strptime(date_str,"%Y-%m-%d")).isoformat(), # Use GMT 00:00 is timestamp is not available
+                "tags": {
+                    "Device": GARMIN_DEVICENAME,
+                    "Database_Name": INFLUXDB_DATABASE
+                },
+                "fields": {
+                    "EnduranceScore": endurance_dict.get("overallScore")
+                    }
+            })
+            logging.info(f"Success : Fetching Endurance Score for date {date_str}")
     return points_list
 
 def get_blood_pressure(date_str):
@@ -1033,6 +1035,27 @@ def get_hydration(date_str):
 
 # %%
 def daily_fetch_write(date_str):
+    if REQUEST_INTRADAY_DATA_REFRESH and (datetime.strptime(date_str, "%Y-%m-%d") <= (datetime.today() - timedelta(days=IGNORE_INTRADAY_DATA_REFRESH_DAYS))):
+        data_refresh_response = garmin_obj.connectapi(f"wellness-service/wellness/epoch/request/{date_str}", method="POST").get("status", "Unknown")
+        logging.info(f"Intraday data refresh request status: {data_refresh_response}")
+        if data_refresh_response == "SUBMITTED":
+            logging.info(f"Waiting 10 seconds for refresh request to process...")
+            time.sleep(10)
+        elif data_refresh_response == "COMPLETE":
+            logging.info(f"Data for date {date_str} is already available")
+        elif data_refresh_response == "NO_FILES_FOUND":
+            logging.info(f"No Data is available for date {date_str} to refresh")
+            return None
+        elif data_refresh_response == "DENIED":
+            logging.info(f"Daily refresh limit reached. Pausing script for 24 hours to ensure Intraday data fetching. Disable REQUEST_INTRADAY_DATA_REFRESH to avoid this!")
+            time.sleep(86500)
+            data_refresh_response = garmin_obj.connectapi(f"wellness-service/wellness/epoch/request/{date_str}", method="POST").get("status", "Unknown")
+            logging.info(f"Intraday data refresh request status: {data_refresh_response}")
+            logging.info(f"Waiting 10 seconds...")
+            time.sleep(10)
+        else:
+            logging.info(f"Refresh response is unknown!")
+            time.sleep(5)
     if 'daily_avg' in FETCH_SELECTION:
         write_points_to_influxdb(get_daily_stats(date_str))
     if 'sleep' in FETCH_SELECTION:
