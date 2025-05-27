@@ -13,6 +13,19 @@ from garminconnect import (
     GarminConnectConnectionError,
     GarminConnectTooManyRequestsError,
 )
+from custom_metrics import (
+    get_training_load,
+    get_vo2max,
+    get_activity_vo2,
+    get_vo2max_segmented,
+    get_training_readiness,
+    get_lactate_threshold,
+    get_acwr,
+    get_hrv_baseline,
+    get_training_load_focus,
+    get_readiness_inputs
+)
+
 garmin_obj = None
 banner_text = """
 
@@ -106,7 +119,7 @@ try:
     'tags': {'DemoTag': 'DemoTagValue'},
     'fields': {'DemoField': 0}
      }
-    # The following code block tests the connection by writing/overwriting a demo point. raises error and aborts if connection fails. 
+    # The following code block tests the connection by writing/overwriting a demo point. raises error and aborts if connection fails.
     if INFLUXDB_VERSION == '1':
         influxdbclient.write_points([demo_point])
     else:
@@ -117,13 +130,15 @@ except (InfluxDBClientError, InfluxDBError) as err:
 
 # %%
 def iter_days(start_date: str, end_date: str):
-    start = datetime.strptime(start_date, '%Y-%m-%d')
-    end = datetime.strptime(end_date, '%Y-%m-%d')
-    current = end
-
-    while current >= start:
-        yield current.strftime('%Y-%m-%d')
-        current -= timedelta(days=1)
+    """
+    Yield YYYY‑MM‑DD from start_date up to end_date, oldest first.
+    """
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
+    current = start
+    while current <= end:
+        yield current.strftime("%Y-%m-%d")
+        current += timedelta(days=1)
 
 
 # %%
@@ -629,6 +644,12 @@ def get_activity_summary(date_str):
                 logging.warning(f"Activity ID {activity.get('activityId')} got no GPS data - yet, activity FIT file data will be processed as ALWAYS_PROCESS_FIT_FILES is on")
             activity_with_gps_id_dict[activity.get('activityId')] = (activity.get('activityType') or {}).get('typeKey', "Unknown")
         if "startTimeGMT" in activity: # "startTimeGMT" should be available for all activities (fix #13)
+            start = datetime.strptime(activity["startTimeGMT"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
+            duration = int(activity.get('elapsedDuration', 0))
+            end = start + timedelta(seconds=duration)
+
+            trimp = get_training_load(garmin_obj, date_str, start, end)
+
             points_list.append({
                 "measurement":  "ActivitySummary",
                 "time": datetime.strptime(activity["startTimeGMT"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC).isoformat(),
@@ -653,6 +674,7 @@ def get_activity_summary(date_str):
                     'averageHR': activity.get('averageHR'),
                     'maxHR': activity.get('maxHR'),
                     'locationName': activity.get('locationName'),
+                    'banisterTRIMP': round(trimp, 2),
                     'lapCount': activity.get('lapCount'),
                     'hrTimeInZone_1': activity.get('hrTimeInZone_1'),
                     'hrTimeInZone_2': activity.get('hrTimeInZone_2'),
@@ -717,7 +739,7 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                         if parsed_record.get('timestamp'):
                             point = {
                                 "measurement": "ActivityGPS",
-                                "time": parsed_record['timestamp'].replace(tzinfo=pytz.UTC).isoformat(), 
+                                "time": parsed_record['timestamp'].replace(tzinfo=pytz.UTC).isoformat(),
                                 "tags": {
                                     "Device": GARMIN_DEVICENAME,
                                     "Database_Name": INFLUXDB_DATABASE,
@@ -897,7 +919,7 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                             }
                         }
                         points_list.append(point)
-                    
+
                     lap_index += 1
         logging.info(f"Success : Fetching detailed activity for Activity ID {activityID}")
         PARSED_ACTIVITY_ID_LIST.append(activityID)
@@ -1194,12 +1216,28 @@ def daily_fetch_write(date_str):
         activity_summary_points_list, activity_with_gps_id_dict = get_activity_summary(date_str)
         write_points_to_influxdb(activity_summary_points_list)
         write_points_to_influxdb(fetch_activity_GPS(activity_with_gps_id_dict))
+    
+    #### custom
+    # write_points_to_influxdb(get_training_load(garmin_obj, date_str))
+    write_points_to_influxdb(get_vo2max(garmin_obj, date_str, GARMIN_DEVICENAME))
+    write_points_to_influxdb(get_activity_vo2(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
+    write_points_to_influxdb(get_vo2max_segmented(garmin_obj, date_str, GARMIN_DEVICENAME))
+    # write_points_to_influxdb(get_training_readiness(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
+    write_points_to_influxdb(get_lactate_threshold(garmin_obj, date_str, GARMIN_DEVICENAME))
+    write_points_to_influxdb(get_acwr(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
+    write_points_to_influxdb(get_hrv_baseline(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
+    write_points_to_influxdb(get_training_load_focus(garmin_obj, date_str, GARMIN_DEVICENAME))
+    write_points_to_influxdb(get_readiness_inputs(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
+    ####
             
 
 # %%
 def fetch_write_bulk(start_date_str, end_date_str):
     global garmin_obj
-    logging.info("Fetching data for the given period in reverse chronological order")
+    #influxdbclient.query('DROP MEASUREMENT "ReadinessInputs"')
+
+    logging.info(f"Fetching data for the given period in chronological order: "
+                 f"{start_date_str} → {end_date_str}")
     time.sleep(3)
     write_points_to_influxdb(get_last_sync())
     for current_date in iter_days(start_date_str, end_date_str):
@@ -1273,7 +1311,7 @@ else:
         last_watch_sync_time_UTC = datetime.fromtimestamp(int(garmin_obj.get_device_last_used().get('lastUsedDeviceUploadTime')/1000)).astimezone(pytz.timezone("UTC"))
         if last_influxdb_sync_time_UTC < last_watch_sync_time_UTC:
             logging.info(f"Update found : Current watch sync time is {last_watch_sync_time_UTC} UTC")
-            fetch_write_bulk((last_influxdb_sync_time_UTC + local_timediff).strftime('%Y-%m-%d'), (last_watch_sync_time_UTC + local_timediff).strftime('%Y-%m-%d')) # Using local dates for deciding which dates to fetch in current iteration (see issue #25)
+            fetch_write_bulk(last_influxdb_sync_time_UTC.strftime('%Y-%m-%d'), last_watch_sync_time_UTC.strftime('%Y-%m-%d'))
             last_influxdb_sync_time_UTC = last_watch_sync_time_UTC
         else:
             logging.info(f"No new data found : Current watch and influxdb sync time is {last_watch_sync_time_UTC} UTC")
