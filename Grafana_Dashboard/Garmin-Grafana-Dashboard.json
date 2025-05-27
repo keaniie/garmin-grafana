@@ -4792,7 +4792,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "axisSoftMin": 85,
-            "fillOpacity": 56,
+            "fillOpacity": 52,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -4804,7 +4804,7 @@
               "type": "linear"
             },
             "thresholdsStyle": {
-              "mode": "dashed"
+              "mode": "off"
             }
           },
           "decimals": 0,
@@ -4815,11 +4815,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "light-yellow"
               },
               {
-                "color": "light-yellow",
+                "color": "light-red",
                 "value": 120
+              },
+              {
+                "color": "semi-dark-red",
+                "value": 140
               }
             ]
           },
@@ -4836,7 +4840,7 @@
                 "id": "color",
                 "value": {
                   "fixedColor": "dark-red",
-                  "mode": "fixed"
+                  "mode": "thresholds"
                 }
               }
             ]
@@ -4865,7 +4869,6 @@
       "options": {
         "barRadius": 0,
         "barWidth": 0.97,
-        "colorByField": "Heart Rate",
         "fullHighlight": true,
         "groupWidth": 1,
         "legend": {
@@ -5011,6 +5014,18 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "time:hh:mm a"
+              }
+            ]
           }
         ]
       },
@@ -5064,7 +5079,7 @@
           "measurement": "ActivityGPS",
           "orderByTime": "ASC",
           "policy": "default",
-          "query": "SELECT \"HeartRate\" FROM \"ActivityGPS\" WHERE (\"ActivitySelector\"::tag =~ /^$ActivityGPS$/)",
+          "query": "SELECT (1000/(\"Cadence\"* 60)) FROM \"ActivityGPS\" WHERE (\"ActivitySelector\"::tag =~ /^$ActivityGPS$/) AND $timeFilter",
           "rawQuery": false,
           "refId": "A",
           "resultFormat": "time_series",
@@ -5075,6 +5090,12 @@
                   "Cadence"
                 ],
                 "type": "field"
+              },
+              {
+                "params": [
+                  "* 2"
+                ],
+                "type": "math"
               }
             ]
           ],
@@ -5137,7 +5158,7 @@
               "tooltip": false,
               "viz": false
             },
-            "insertNulls": false,
+            "insertNulls": 3600000,
             "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
@@ -5206,6 +5227,18 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dthms"
+              }
+            ]
           }
         ]
       },
@@ -5227,7 +5260,8 @@
           "hideZeros": false,
           "mode": "single",
           "sort": "none"
-        }
+        },
+        "xField": "Duration"
       },
       "pluginVersion": "12.0.0",
       "targets": [
@@ -5335,6 +5369,39 @@
               "value": "/^$ActivityGPS$/"
             }
           ]
+        },
+        {
+          "alias": "Duration",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_GARMIN_STATS}"
+          },
+          "groupBy": [],
+          "hide": false,
+          "measurement": "ActivityGPS",
+          "orderByTime": "ASC",
+          "policy": "default",
+          "query": "SELECT \"HeartRate\" FROM \"ActivityGPS\" WHERE (\"ActivitySelector\"::tag =~ /^$ActivityGPS$/)",
+          "rawQuery": false,
+          "refId": "D",
+          "resultFormat": "time_series",
+          "select": [
+            [
+              {
+                "params": [
+                  "DurationSeconds"
+                ],
+                "type": "field"
+              }
+            ]
+          ],
+          "tags": [
+            {
+              "key": "ActivitySelector::tag",
+              "operator": "=~",
+              "value": "/^$ActivityGPS$/"
+            }
+          ]
         }
       ],
       "title": "Distance vs HR",
@@ -5342,6 +5409,19 @@
         {
           "id": "joinByField",
           "options": {}
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "Heart Rate",
+                "Pace",
+                "Duration"
+              ]
+            }
+          }
         }
       ],
       "transparent": true,
@@ -5570,7 +5650,7 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
-            "fillOpacity": 43,
+            "fillOpacity": 100,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -5592,29 +5672,40 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "semi-dark-green"
               },
               {
-                "color": "red",
-                "value": 80
+                "color": "light-green",
+                "value": 720
+              },
+              {
+                "color": "#EAB839",
+                "value": 1000
+              },
+              {
+                "color": "semi-dark-red",
+                "value": 1200
               }
             ]
-          },
-          "unit": "velocitykmh"
+          }
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "Speed (Km/Hour)"
+              "options": "time/km"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
                   "fixedColor": "light-green",
-                  "mode": "fixed"
+                  "mode": "thresholds"
                 }
+              },
+              {
+                "id": "unit",
+                "value": "dthms"
               }
             ]
           },
@@ -5629,11 +5720,23 @@
                 "value": "time: hh:mm a"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
+              }
+            ]
           }
         ]
       },
       "gridPos": {
-        "h": 8,
+        "h": 7,
         "w": 24,
         "x": 0,
         "y": 112
@@ -5668,7 +5771,40 @@
       "pluginVersion": "12.0.0",
       "targets": [
         {
-          "alias": "Speed",
+          "alias": "m/s",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_GARMIN_STATS}"
+          },
+          "groupBy": [],
+          "hide": false,
+          "measurement": "ActivityGPS",
+          "orderByTime": "ASC",
+          "policy": "default",
+          "query": "SELECT \"Speed\" FROM \"ActivityGPS\" WHERE \"Speed\" > 0 AND  (\"ActivitySelector\"::tag =~ /^$ActivityGPS$/) AND $timeFilter",
+          "rawQuery": false,
+          "refId": "A",
+          "resultFormat": "time_series",
+          "select": [
+            [
+              {
+                "params": [
+                  "Speed"
+                ],
+                "type": "field"
+              }
+            ]
+          ],
+          "tags": [
+            {
+              "key": "ActivitySelector::tag",
+              "operator": "=~",
+              "value": "/^$ActivityGPS$/"
+            }
+          ]
+        },
+        {
+          "alias": "Duration",
           "datasource": {
             "type": "influxdb",
             "uid": "${DS_GARMIN_STATS}"
@@ -5680,21 +5816,15 @@
           "policy": "default",
           "query": "SELECT \"HeartRate\" FROM \"ActivityGPS\" WHERE (\"ActivitySelector\"::tag =~ /^$ActivityGPS$/)",
           "rawQuery": false,
-          "refId": "A",
+          "refId": "B",
           "resultFormat": "time_series",
           "select": [
             [
               {
                 "params": [
-                  "Speed"
+                  "DurationSeconds"
                 ],
                 "type": "field"
-              },
-              {
-                "params": [
-                  "* 3.6"
-                ],
-                "type": "math"
               }
             ]
           ],
@@ -5712,18 +5842,71 @@
         {
           "id": "calculateField",
           "options": {
-            "alias": "Speed (Km/Hour)",
+            "alias": "(m/s)",
             "mode": "windowFunctions",
             "reduce": {
               "reducer": "sum"
             },
             "replaceFields": true,
             "window": {
-              "field": "Speed",
+              "field": "m/s",
               "reducer": "mean",
               "windowAlignment": "centered",
               "windowSize": 20,
               "windowSizeMode": "fixed"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0
+                  }
+                },
+                "fieldName": "(m/s)"
+              }
+            ],
+            "match": "all",
+            "type": "include"
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "time/km",
+            "binary": {
+              "left": {
+                "fixed": "1000"
+              },
+              "operator": "/",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "(m/s)"
+                }
+              }
+            },
+            "mode": "binary",
+            "reduce": {
+              "reducer": "sum"
+            },
+            "replaceFields": true
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "byVariable": false,
+            "include": {
+              "names": [
+                "Time",
+                "time/km"
+              ]
             }
           }
         }
@@ -5843,7 +6026,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 120
+        "y": 119
       },
       "id": 46,
       "options": {
@@ -6133,7 +6316,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 128
+        "y": 127
       },
       "id": 38,
       "options": {
@@ -6447,7 +6630,7 @@
         "h": 4,
         "w": 24,
         "x": 0,
-        "y": 136
+        "y": 135
       },
       "id": 41,
       "options": {
@@ -6505,7 +6688,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 140
+        "y": 139
       },
       "id": 9,
       "panels": [],
@@ -6773,7 +6956,7 @@
         "h": 11,
         "w": 24,
         "x": 0,
-        "y": 141
+        "y": 140
       },
       "hideTimeOverride": false,
       "id": 59,
@@ -7204,7 +7387,7 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 152
+        "y": 151
       },
       "id": 1,
       "options": {
@@ -7336,7 +7519,7 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 152
+        "y": 151
       },
       "id": 3,
       "options": {
@@ -7499,7 +7682,7 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 152
+        "y": 151
       },
       "id": 10,
       "options": {
@@ -7777,7 +7960,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 161
+        "y": 160
       },
       "id": 11,
       "options": {
@@ -8087,7 +8270,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 161
+        "y": 160
       },
       "id": 51,
       "options": {
@@ -8366,7 +8549,7 @@
         "h": 10,
         "w": 8,
         "x": 0,
-        "y": 170
+        "y": 169
       },
       "id": 63,
       "options": {
@@ -8693,7 +8876,7 @@
         "h": 10,
         "w": 8,
         "x": 8,
-        "y": 170
+        "y": 169
       },
       "id": 64,
       "options": {
@@ -8802,7 +8985,7 @@
         "h": 10,
         "w": 8,
         "x": 16,
-        "y": 170
+        "y": 169
       },
       "id": 69,
       "options": {
@@ -9096,7 +9279,7 @@
         "h": 11,
         "w": 9,
         "x": 0,
-        "y": 180
+        "y": 179
       },
       "id": 13,
       "options": {
@@ -9410,7 +9593,7 @@
         "h": 11,
         "w": 7,
         "x": 9,
-        "y": 180
+        "y": 179
       },
       "id": 23,
       "options": {
@@ -9671,7 +9854,7 @@
         "h": 11,
         "w": 8,
         "x": 16,
-        "y": 180
+        "y": 179
       },
       "id": 12,
       "options": {
@@ -9912,7 +10095,7 @@
         "h": 11,
         "w": 9,
         "x": 0,
-        "y": 191
+        "y": 190
       },
       "id": 17,
       "options": {
@@ -10200,7 +10383,7 @@
         "h": 11,
         "w": 8,
         "x": 9,
-        "y": 191
+        "y": 190
       },
       "id": 19,
       "options": {
@@ -10413,7 +10596,7 @@
         "h": 11,
         "w": 7,
         "x": 17,
-        "y": 191
+        "y": 190
       },
       "id": 4,
       "options": {
@@ -10766,7 +10949,7 @@
         "h": 14,
         "w": 10,
         "x": 0,
-        "y": 202
+        "y": 201
       },
       "id": 18,
       "options": {
@@ -11104,7 +11287,7 @@
         "h": 6,
         "w": 7,
         "x": 10,
-        "y": 202
+        "y": 201
       },
       "id": 22,
       "options": {
@@ -11400,7 +11583,7 @@
         "h": 7,
         "w": 7,
         "x": 17,
-        "y": 202
+        "y": 201
       },
       "id": 37,
       "options": {
@@ -11657,7 +11840,7 @@
         "h": 8,
         "w": 7,
         "x": 10,
-        "y": 208
+        "y": 207
       },
       "id": 34,
       "options": {
@@ -11808,7 +11991,7 @@
         "h": 7,
         "w": 7,
         "x": 17,
-        "y": 209
+        "y": 208
       },
       "id": 58,
       "options": {
@@ -12220,7 +12403,7 @@
         "h": 11,
         "w": 24,
         "x": 0,
-        "y": 216
+        "y": 215
       },
       "id": 66,
       "options": {
@@ -12805,7 +12988,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 227
+        "y": 226
       },
       "id": 67,
       "options": {
@@ -13065,7 +13248,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 235
+        "y": 234
       },
       "id": 65,
       "options": {
@@ -13206,7 +13389,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 243
+        "y": 242
       },
       "id": 20,
       "options": {
@@ -13332,7 +13515,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 243
+        "y": 242
       },
       "id": 27,
       "options": {
@@ -13509,7 +13692,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 253
+        "y": 252
       },
       "id": 60,
       "options": {
@@ -13584,7 +13767,6 @@
         "definition": "SHOW TAG VALUES FROM \"ActivityGPS\" WITH KEY = \"ActivitySelector\" WHERE $timeFilter",
         "description": "List of Activities dropdown",
         "label": "Activity with GPS",
-        "multi": true,
         "name": "ActivityGPS",
         "options": [],
         "query": {
@@ -13869,6 +14051,6 @@
   "timezone": "browser",
   "title": "Garmin Stats",
   "uid": "feiibsx498gsgb",
-  "version": 202,
+  "version": 214,
   "weekStart": ""
 }

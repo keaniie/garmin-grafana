@@ -67,7 +67,8 @@ RATE_LIMIT_CALLS_SECONDS = int(os.getenv("RATE_LIMIT_CALLS_SECONDS", 5)) # optio
 INFLUXDB_ENDPOINT_IS_HTTP = False if os.getenv("INFLUXDB_ENDPOINT_IS_HTTP") in ['False','false','FALSE','f','F','no','No','NO','0'] else True # optional
 GARMIN_DEVICENAME_AUTOMATIC = False if GARMIN_DEVICENAME != "Unknown" else True # optional
 UPDATE_INTERVAL_SECONDS = int(os.getenv("UPDATE_INTERVAL_SECONDS", 300)) # optional
-FETCH_SELECTION = os.getenv("FETCH_SELECTION", "daily_avg,sleep,steps,heartrate,stress,breathing,hrv,vo2,activity,race_prediction,body_composition") # additional available values are training_readiness,hill_score,endurance_score,blood_pressure,hydration which you can add to the list seperated by , without any space
+FETCH_SELECTION = os.getenv("FETCH_SELECTION", "daily_avg,sleep,steps,heartrate,stress,breathing,hrv,vo2,activity,race_prediction,body_composition") # additional available values are lactate_threshold,training_status,training_readiness,hill_score,endurance_score,blood_pressure,hydration which you can add to the list seperated by , without any space
+LACTATE_THRESHOLD_SPORTS = os.getenv("LACTATE_THRESHOLD_SPORTS", "RUNNING").upper().split(",") # Garmin currently implements RUNNING, but has provisions for CYCLING, and SWIMMING
 KEEP_FIT_FILES = True if os.getenv("KEEP_FIT_FILES") in ['True', 'true', 'TRUE','t', 'T', 'yes', 'Yes', 'YES', '1'] else False # optional
 FIT_FILE_STORAGE_LOCATION = os.getenv("FIT_FILE_STORAGE_LOCATION", os.path.join(os.path.expanduser("~"), "fit_filestore"))
 ALWAYS_PROCESS_FIT_FILES = True if os.getenv("ALWAYS_PROCESS_FIT_FILES") in ['True', 'true', 'TRUE','t', 'T', 'yes', 'Yes', 'YES', '1'] else False # optional, will process all FIT files for all activities including indoor ones lacking GPS data
@@ -181,15 +182,18 @@ def garmin_login():
 
 # %%
 def write_points_to_influxdb(points):
+    write_chunk_size = 20000
     try:
         if len(points) != 0:
             if TAG_MEASUREMENTS_WITH_USER_EMAIL:
                 for item in points:
                     item['tags'].update({'User_ID': garmin_obj.garth.profile.get('userName','Unknown')})
-            if INFLUXDB_VERSION == '1':
-                influxdbclient.write_points(points)
-            else:
-                influxdbclient.write(record=points)
+            # Write in chunks - Issue reported for large activities data containing >20000 points - Error 413 : payload too large
+            for i in range(0, len(points), write_chunk_size):
+                if INFLUXDB_VERSION == '1':
+                    influxdbclient.write_points(points[i:i + write_chunk_size])
+                else:
+                    influxdbclient.write(record=points[i:i + write_chunk_size])
             logging.info("Success : updated influxDB database with new points")
     except (InfluxDBClientError, InfluxDBError) as err:
         logging.error("Write failed : Unable to connect with database! " + str(err))
@@ -357,6 +361,17 @@ def get_sleep_data(date_str):
                         "SleepStageSeconds": int((datetime.strptime(entry["endGMT"], "%Y-%m-%dT%H:%M:%S.%f") - datetime.strptime(entry["startGMT"], "%Y-%m-%dT%H:%M:%S.%f")).total_seconds())
                     }
                 })
+        # Add additional duplicate terminal data point (see issue #127)
+        if entry.get("endGMT"):
+            points_list.append({
+                "measurement":  "SleepIntraday",
+                "time": pytz.timezone("UTC").localize(datetime.strptime(entry["endGMT"], "%Y-%m-%dT%H:%M:%S.%f")).isoformat(),
+                "tags": {
+                    "Device": GARMIN_DEVICENAME,
+                    "Database_Name": INFLUXDB_DATABASE
+                },
+                "fields": {"SleepStageLevel": entry.get("activityLevel")} # Duplicating last entry for visualization in Grafana
+            })
     sleep_restlessness_intraday = all_sleep_data.get("sleepRestlessMoments")
     if sleep_restlessness_intraday:
         for entry in sleep_restlessness_intraday:
@@ -597,6 +612,11 @@ def get_body_composition(date_str):
                     "bmi": weight_dict.get("bmi"),
                     "bodyFat": weight_dict.get("bodyFat"),
                     "bodyWater": weight_dict.get("bodyWater"),
+                    "boneMass": weight_dict.get("boneMass"),
+                    "muscleMass": weight_dict.get("muscleMass"),
+                    "physiqueRating": weight_dict.get("physiqueRating"),
+                    "visceralFat": weight_dict.get("visceralFat"),
+                    # "metabolicAge": datetime.fromtimestamp(int(weight_dict.get("metabolicAge")/1000), tz=pytz.timezone("UTC")).isoformat() if weight_dict.get("metabolicAge") else None
                 }
             if not all(value is None for value in data_fields.values()):
                 points_list.append({
@@ -708,6 +728,7 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                     fitfile = FitFile(fit_file_buffer)
                     fitfile.parse()
                     all_records_list = [record.get_values() for record in fitfile.get_messages('record')]
+                    all_sessions_list = [record.get_values() for record in fitfile.get_messages('session')]
                     all_lengths_list = [record.get_values() for record in fitfile.get_messages('length')]
                     all_laps_list = [record.get_values() for record in fitfile.get_messages('lap')]
                     if len(all_records_list) == 0:
@@ -732,6 +753,7 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                                     "Longitude": int(parsed_record['position_long']) * ( 180 / 2**31 ) if parsed_record.get('position_long') else None,
                                     "Altitude": parsed_record.get('enhanced_altitude', None) or parsed_record.get('altitude', None),
                                     "Distance": parsed_record.get('distance', None),
+                                    "DurationSeconds": (parsed_record['timestamp'].replace(tzinfo=pytz.UTC) - activity_start_time).total_seconds(),
                                     "HeartRate": float(parsed_record.get('heart_rate', None)) if parsed_record.get('heart_rate', None) else None,
                                     "Speed": parsed_record.get('enhanced_speed', None) or parsed_record.get('speed', None),
                                     "Cadence": parsed_record.get('cadence', None),
@@ -742,11 +764,39 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                                 }
                             }
                             points_list.append(point)
+                    for session_record in all_sessions_list:
+                        if session_record.get('start_time') or session_record.get('timestamp'):
+                            point = {
+                                "measurement": "ActivitySession",
+                                "time": session_record['start_time'].replace(tzinfo=pytz.UTC).isoformat() or session_record['timestamp'].replace(tzinfo=pytz.UTC).isoformat(), 
+                                "tags": {
+                                    "Device": GARMIN_DEVICENAME,
+                                    "Database_Name": INFLUXDB_DATABASE,
+                                    "ActivityID": activityID,
+                                    "ActivitySelector": activity_start_time.strftime('%Y%m%dT%H%M%SUTC-') + activity_type
+                                },
+                                "fields": {
+                                    "Index": int(session_record.get('message_index', -1)) + 1,
+                                    "ActivityName": activity_type,
+                                    "Activity_ID": activityID,
+                                    "Sport": session_record.get('sport', None),
+                                    "Sub_Sport": session_record.get('sub_sport', None),
+                                    "Pool_Length": session_record.get('pool_length', None),
+                                    "Pool_Length_Unit": session_record.get('pool_length_unit', None),
+                                    "Lengths": session_record.get('num_laps', None),
+                                    "Laps": session_record.get('num_lengths', None),
+                                    "Aerobic_Training": session_record.get('total_training_effect', None),
+                                    "Anaerobic_Training": session_record.get('total_anaerobic_training_effect', None),
+                                    "Primary_Benefit": session_record.get('primary_benefit', None),
+                                    "Recovery_Time": session_record.get('recovery_time', None)
+                                }
+                            }
+                            points_list.append(point)
                     for length_record in all_lengths_list:
-                        if length_record.get('timestamp'):
+                        if length_record.get('start_time') or length_record.get('timestamp'):
                             point = {
                                 "measurement": "ActivityLength",
-                                "time": length_record['timestamp'].replace(tzinfo=pytz.UTC).isoformat(), 
+                                "time": length_record['start_time'].replace(tzinfo=pytz.UTC).isoformat() or length_record['timestamp'].replace(tzinfo=pytz.UTC).isoformat(), 
                                 "tags": {
                                     "Device": GARMIN_DEVICENAME,
                                     "Database_Name": INFLUXDB_DATABASE,
@@ -759,6 +809,7 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                                     "Activity_ID": activityID,
                                     "Elapsed_Time": length_record.get('total_elapsed_time', None),
                                     "Strokes": length_record.get('total_strokes', None),
+                                    "Swim_Stroke": length_record.get('swim_stroke', None),
                                     "Avg_Speed": length_record.get('avg_speed', None),
                                     "Calories": length_record.get('total_calories', None),
                                     "Avg_Cadence": length_record.get('avg_swimming_cadence', None)
@@ -766,10 +817,10 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                             }
                             points_list.append(point)
                     for lap_record in all_laps_list:
-                        if lap_record.get('timestamp'):
+                        if lap_record.get('start_time') or lap_record.get('timestamp'):
                             point = {
                                 "measurement": "ActivityLap",
-                                "time": lap_record['timestamp'].replace(tzinfo=pytz.UTC).isoformat(), 
+                                "time": lap_record['start_time'].replace(tzinfo=pytz.UTC).isoformat() or lap_record['timestamp'].replace(tzinfo=pytz.UTC).isoformat(), 
                                 "tags": {
                                     "Device": GARMIN_DEVICENAME,
                                     "Database_Name": INFLUXDB_DATABASE,
@@ -781,14 +832,21 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                                     "ActivityName": activity_type,
                                     "Activity_ID": activityID,
                                     "Elapsed_Time": lap_record.get('total_elapsed_time', None),
+                                    "Sport": lap_record.get('sport', None),
+                                    "Lengths": lap_record.get('num_lengths', None),
+                                    "Length_Index": lap_record.get('first_length_index', None),
                                     "Distance": lap_record.get('total_distance', None),
                                     "Cycles": lap_record.get('total_cycles', None),
+                                    "Avg_Stroke_Distance": lap_record.get('avg_stroke_distance', None),
                                     "Moving_Duration": lap_record.get('total_moving_time', None),
                                     "Standing_Duration": lap_record.get('time_standing', None),
                                     "Avg_Speed": lap_record.get('enhanced_avg_speed', None),
+                                    "Max_Speed": lap_record.get('enhanced_max_speed', None),
                                     "Calories": lap_record.get('total_calories', None),
                                     "Avg_Power": lap_record.get('avg_power', None),
                                     "Avg_HR": lap_record.get('avg_heart_rate', None),
+                                    "Max_HR": lap_record.get('max_heart_rate', None),
+                                    "Avg_Cadence": lap_record.get('avg_cadence', None),
                                     "Avg_Temperature": lap_record.get('avg_temperature', None)
                                 }
                             }
@@ -806,6 +864,9 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                 root = ET.fromstring(garmin_obj.download_activity(activityID, dl_fmt=garmin_obj.ActivityDownloadFormat.TCX).decode("UTF-8"))
             except requests.exceptions.Timeout as err:
                 logging.warning(f"Request timeout for fetching large activity record {activityID} - skipping record")
+                return []
+            except Exception as err:
+                logging.exception(f"Unable to fetch TCX for activity record {activityID} : skipping record")
                 return []
             ns = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2", "ns3": "http://www.garmin.com/xmlschemas/ActivityExtension/v2"}
             for activity in root.findall("tcx:Activities/tcx:Activity", ns):
@@ -851,6 +912,7 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                                 "Longitude": lon,
                                 "Altitude": alt,
                                 "Distance": dist,
+                                "DurationSeconds": (time_obj - activity_start_time).total_seconds(),
                                 "HeartRate": hr,
                                 "Speed": speed,
                                 "lap": lap_index
@@ -861,6 +923,66 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                     lap_index += 1
         logging.info(f"Success : Fetching detailed activity for Activity ID {activityID}")
         PARSED_ACTIVITY_ID_LIST.append(activityID)
+    return points_list
+
+def get_lactate_threshold(date_str):
+    points_list = []
+    endpoints = {}
+    
+    for ltsport in LACTATE_THRESHOLD_SPORTS:
+        endpoints[f"SpeedThreshold_{ltsport}"] = f"/biometric-service/stats/lactateThresholdSpeed/range/{date_str}/{date_str}?aggregation=daily&sport={ltsport}"
+        endpoints[f"HeartRateThreshold_{ltsport}"] = f"/biometric-service/stats/lactateThresholdHeartRate/range/{date_str}/{date_str}?aggregation=daily&sport={ltsport}"
+
+    for label, endpoint in endpoints.items():
+        lt_list_all = garmin_obj.connectapi(endpoint)
+        if lt_list_all:
+            for lt_dict in lt_list_all:
+                value = lt_dict.get("value")
+                if value is not None:
+                    points_list.append({
+                        "measurement": "LactateThreshold",
+                        "time": datetime.fromtimestamp(datetime.strptime(date_str, "%Y-%m-%d").timestamp(), tz=pytz.timezone("UTC")).isoformat(),
+                        "tags": {
+                            "Device": GARMIN_DEVICENAME,
+                            "Database_Name": INFLUXDB_DATABASE
+                        },
+                        "fields": {f"{label}": value}
+                    })
+                    logging.info(f"Success : Fetching {label} for date {date_str}")
+
+    return points_list
+    
+def get_training_status(date_str):
+    points_list = []
+    ts_list_all = garmin_obj.get_training_status(date_str)
+    ts_training_data_all = (ts_list_all.get("mostRecentTrainingStatus") or {}).get("latestTrainingStatusData", {})
+
+    if ts_training_data_all:
+        for device_id, ts_dict in ts_training_data_all.items():
+            logging.info(f"Success : Processing Training Status for Device {device_id}")
+            data_fields = {
+                "trainingStatus": ts_dict.get("trainingStatus"),
+                "trainingStatusFeedbackPhrase": ts_dict.get("trainingStatusFeedbackPhrase"),
+                "weeklyTrainingLoad": ts_dict.get("weeklyTrainingLoad"),
+                "fitnessTrend": ts_dict.get("fitnessTrend"),
+                "acwrPercent": (ts_dict.get("acuteTrainingLoadDTO") or {}).get("acwrPercent"),
+                "dailyTrainingLoadAcute": (ts_dict.get("acuteTrainingLoadDTO") or {}).get("dailyTrainingLoadAcute"),
+                "dailyTrainingLoadChronic": (ts_dict.get("acuteTrainingLoadDTO") or {}).get("dailyTrainingLoadChronic"),
+                "maxTrainingLoadChronic": (ts_dict.get("acuteTrainingLoadDTO") or {}).get("maxTrainingLoadChronic"),
+                "minTrainingLoadChronic": (ts_dict.get("acuteTrainingLoadDTO") or {}).get("minTrainingLoadChronic"),
+                "dailyAcuteChronicWorkloadRatio": (ts_dict.get("acuteTrainingLoadDTO") or {}).get("dailyAcuteChronicWorkloadRatio"),
+            }
+            if ts_dict.get("timestamp") and any(value is not None for value in data_fields.values()):
+                points_list.append({
+                    "measurement": "TrainingStatus",
+                    "time": datetime.fromtimestamp(ts_dict["timestamp"]/1000, tz=pytz.timezone("UTC")).isoformat(),
+                    "tags": {
+                        "Device": GARMIN_DEVICENAME,
+                        "Database_Name": INFLUXDB_DATABASE
+                    },
+                    "fields": data_fields
+                })
+                logging.info(f"Success : Fetching Training Status for date {date_str}")
     return points_list
 
 # Contribution from PR #17 by @arturgoms 
@@ -1076,6 +1198,10 @@ def daily_fetch_write(date_str):
         write_points_to_influxdb(get_race_predictions(date_str))
     if 'body_composition' in FETCH_SELECTION:
         write_points_to_influxdb(get_body_composition(date_str))
+    if 'lactate_threshold' in FETCH_SELECTION:
+        write_points_to_influxdb(get_lactate_threshold(date_str))
+    if 'training_status' in FETCH_SELECTION:
+        write_points_to_influxdb(get_training_status(date_str))
     if 'training_readiness' in FETCH_SELECTION:
         write_points_to_influxdb(get_training_readiness(date_str))
     if 'hill_score' in FETCH_SELECTION:
