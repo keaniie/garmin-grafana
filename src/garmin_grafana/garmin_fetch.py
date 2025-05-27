@@ -19,7 +19,7 @@ from custom_metrics import (
     get_activity_vo2,
     get_vo2max_segmented,
     get_training_readiness,
-    get_lactate_threshold,
+    get_custom_lactate_threshold,
     get_acwr,
     get_hrv_baseline,
     get_training_load_focus,
@@ -1223,7 +1223,7 @@ def daily_fetch_write(date_str):
     write_points_to_influxdb(get_activity_vo2(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
     write_points_to_influxdb(get_vo2max_segmented(garmin_obj, date_str, GARMIN_DEVICENAME))
     # write_points_to_influxdb(get_training_readiness(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
-    write_points_to_influxdb(get_lactate_threshold(garmin_obj, date_str, GARMIN_DEVICENAME))
+    write_points_to_influxdb(get_custom_lactate_threshold(garmin_obj, date_str, GARMIN_DEVICENAME))
     write_points_to_influxdb(get_acwr(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
     write_points_to_influxdb(get_hrv_baseline(garmin_obj, date_str, influxdbclient, GARMIN_DEVICENAME))
     write_points_to_influxdb(get_training_load_focus(garmin_obj, date_str, GARMIN_DEVICENAME))

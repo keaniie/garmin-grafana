@@ -525,7 +525,7 @@ def get_acwr(garmin_obj, date_str, influxdbclient, garmin_device_name):
 
 
 # %%
-def get_lactate_threshold(garmin_obj, date_str, garmin_device_name):
+def get_custom_lactate_threshold(garmin_obj, date_str, garmin_device_name):
     """
     Estimate running LT from TCX trackpoints:
       • target HR = 0.88 * HRmax ±3 bpm
