@@ -769,6 +769,12 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                             points_list.append(point)
                     for session_record in all_sessions_list:
                         if session_record.get('start_time') or session_record.get('timestamp'):
+                            raw_idx = session_record.get('message_index', -1)
+                            try:
+                                idx = int(raw_idx) + 1
+                            except (ValueError, TypeError):
+                                idx = None
+
                             point = {
                                 "measurement": "ActivitySession",
                                 "time": session_record['start_time'].replace(tzinfo=pytz.UTC).isoformat() or session_record['timestamp'].replace(tzinfo=pytz.UTC).isoformat(), 
@@ -779,7 +785,7 @@ def fetch_activity_GPS(activityIDdict): # Uses FIT file by default, falls back t
                                     "ActivitySelector": activity_start_time.strftime('%Y%m%dT%H%M%SUTC-') + activity_type
                                 },
                                 "fields": {
-                                    "Index": int(session_record.get('message_index', -1)) + 1,
+                                    "Index": idx,
                                     "ActivityName": activity_type,
                                     "Activity_ID": activityID,
                                     "Sport": session_record.get('sport', None),
